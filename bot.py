@@ -35,6 +35,8 @@ else:
     print("⚠️ Файл FAISS-хранилища не найден, создаем заново...")
 
     if not os.path.exists(MASLA_FILE):
+        print(f"🔍 Проверяем путь: {MASLA_FILE}")
+
         raise FileNotFoundError(f"❌ Файл {MASLA_FILE} не найден! Добавь его в каталог.")
 
     with open(MASLA_FILE, 'r', encoding='utf-8') as f:
