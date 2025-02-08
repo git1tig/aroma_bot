@@ -23,7 +23,7 @@ bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 
 # === ПУТИ К ФАЙЛАМ ===
 MASLA_FILE = "./mono_oils.txt"  # Файл с описанием масел
-FAISS_INDEX_FILE = "./faiss_index"  # Файл хранилища FAISS
+FAISS_INDEX_FILE = "./index.faiss"  # Файл хранилища FAISS
 
 # === ПРОВЕРКА И ЗАГРУЗКА FAISS ===
 embs = OpenAIEmbeddings()
