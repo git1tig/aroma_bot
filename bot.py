@@ -22,8 +22,8 @@ openai.api_key = OPENAI_API_KEY
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 
 # === ПУТИ К ФАЙЛАМ ===
-MASLA_FILE = "./mono_oils.txt"  # Файл с описанием масел
-FAISS_INDEX_FILE = "./index.faiss"  # Файл хранилища FAISS
+MASLA_FILE = "/root/my_bot/aroma_bot/mono_oils.txt"  # Файл с описанием масел
+FAISS_INDEX_FILE = "/root/my_bot/aroma_bot/index.faiss"  # Файл хранилища FAISS
 
 # === ПРОВЕРКА И ЗАГРУЗКА FAISS ===
 embs = OpenAIEmbeddings()
