@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*- a change
+# -*- coding: utf-8 -*-
 import os
 import telebot
 import openai
@@ -27,16 +27,15 @@ FAISS_INDEX_FILE = "/app/index.faiss"  # Файл хранилища FAISS
 
 # === ПРОВЕРКА И ЗАГРУЗКА FAISS ===
 embs = OpenAIEmbeddings()
+db = None  # Объявляем db заранее
 
 if os.path.exists(FAISS_INDEX_FILE):
-    print(" Загружаем FAISS-хранилище из файла...")
+    print("✅ Загружаем FAISS-хранилище из файла...")
     db = FAISS.load_local(FAISS_INDEX_FILE, embs, allow_dangerous_deserialization=True)
 else:
-    print("Файл FAISS-хранилища не найден, создаем заново...")
+    print("⚠️ Файл FAISS-хранилища не найден, создаем заново...")
 
     if not os.path.exists(MASLA_FILE):
-        print(f"Проверяем путь: {MASLA_FILE}")
-
         raise FileNotFoundError(f"❌ Файл {MASLA_FILE} не найден! Добавь его в каталог.")
 
     with open(MASLA_FILE, 'r', encoding='utf-8') as f:
@@ -44,9 +43,9 @@ else:
 
     # Разбиваем текст на части
     splitter = MarkdownHeaderTextSplitter(headers_to_split_on=[("#", "Header 1")])
-    chunks = splitter.split_text(my_text)
+    chunks = splitter.create_documents([my_text])  # Исправленный метод
 
-    # Создаем векторное хранилище
+    # Создаем векторное хранилище с OpenAI Embeddings
     db = FAISS.from_documents(chunks, embs)
 
     # Сохраняем в файл
@@ -107,21 +106,27 @@ def cancel_command(message):
 @bot.message_handler(func=lambda message: True)
 def handle_input(message):
     user_input = message.text.strip().lower()
-    
+
     if message.chat.id in user_states:
         if user_states[message.chat.id] == WAITING_OIL_NAME:
-            docs = db.similarity_search_with_score(user_input, k=1)
-            if docs[0][1] < 0.37:
-                bot.reply_to(message, f"Информация о {user_input}: {docs[0][0].page_content}")
+            if db:
+                docs = db.similarity_search_with_score(user_input, k=1)
+                if docs[0][1] < 0.37:
+                    bot.reply_to(message, f"Информация о {user_input}: {docs[0][0].page_content}")
+                else:
+                    docs = db.similarity_search(gpt_for_query(user_input, s2), k=1)
+                    bot.reply_to(message, f'Под ваш запрос {user_input} подходит это: {docs[0].page_content}')
             else:
-                docs = db.similarity_search(gpt_for_query(user_input, s2), k=1)
-                bot.reply_to(message, f'Под ваш запрос {user_input} подходит это: {docs[0].page_content}')
+                bot.reply_to(message, "⚠️ База данных FAISS не загружена, поиск недоступен.")
 
     else:
-        gpt_generated = gpt_for_query(message.text, s1)
-        docs = db.similarity_search(gpt_generated, k=5)
-        response_text = "\n".join([doc.page_content for doc in docs])
-        bot.reply_to(message, response_text)
+        if db:
+            gpt_generated = gpt_for_query(message.text, s1)
+            docs = db.similarity_search(gpt_generated, k=5)
+            response_text = "\n".join([doc.page_content for doc in docs])
+            bot.reply_to(message, response_text)
+        else:
+            bot.reply_to(message, "⚠️ База данных FAISS не загружена, поиск недоступен.")
 
 if __name__ == "__main__":
     print("🤖 Бот запущен! Ожидаем сообщения...")
