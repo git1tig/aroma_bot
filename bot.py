@@ -108,6 +108,7 @@ def send_long_message(chat_id, text):
 
 @bot.message_handler(func=lambda message: True)
 def handle_input(message):
+    print(f"📩 Получено сообщение: {message.text}")  # <--- Добавлено для отладки
     user_input = message.text.strip().lower()
 
     if message.chat.id in user_states:
