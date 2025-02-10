@@ -114,13 +114,14 @@ def handle_input(message):
     print(f"📩 Получено сообщение: {user_input}")  # Логируем входящее сообщение
 
     if message.chat.id in user_states:
-        if user_states[message.chat.id] == WAITING_OIL_NAME:
+        state = user_states[message.chat.id]
+
+        if state == WAITING_OIL_NAME:
             if db:
-                docs = db.similarity_search_with_score(user_input, k=3)  # Ищем топ-3 совпадения
-                extracted_texts = [doc[0].page_content for doc in docs]  # Извлекаем текст
+                docs = db.similarity_search_with_score(user_input, k=3)
+                extracted_texts = [doc[0].page_content for doc in docs]
                 faiss_results = "\n".join(extracted_texts)
 
-                # Создаём промпт для GPT-4o-mini
                 gpt_prompt = f"""
                 Пользователь задал вопрос: "{user_input}".
                 Вот информация, найденная в базе знаний:
@@ -128,12 +129,25 @@ def handle_input(message):
                 Используй эти данные и ответь пользователю понятным языком.
                 """
 
-                # Отправляем в GPT-4o-mini
                 gpt_response = gpt_for_query(gpt_prompt, "Ты эксперт по эфирным маслам. Ответь развернуто и понятно.")
 
                 bot.reply_to(message, gpt_response)
+                del user_states[message.chat.id]  # Удаляем состояние после ответа
             else:
                 bot.reply_to(message, "⚠️ База данных FAISS не загружена, поиск недоступен.")
+
+        elif state == WAITING_NEXT_OIL:
+            bot.reply_to(message, f"Вы выбрали масло: {user_input}. Сколько капель?")
+            user_states[message.chat.id] = WAITING_DROPS  # Переключаем состояние
+
+        elif state == WAITING_DROPS:
+            try:
+                drops = int(user_input)
+                bot.reply_to(message, f"Вы добавили {drops} капель масла.")
+                del user_states[message.chat.id]  # Убираем состояние
+            except ValueError:
+                bot.reply_to(message, "Введите корректное число капель.")
+
     else:
         if db:
             docs = db.similarity_search(user_input, k=5)
@@ -147,15 +161,15 @@ def handle_input(message):
             Используй эти данные и ответь пользователю понятным языком.
             """
 
-            gpt_response = gpt_for_query(gpt_prompt, gpt_sys)
+            gpt_response = gpt_for_query(gpt_prompt, "Ты эксперт по эфирным маслам. Ответь развернуто и понятно.")
 
-            # Проверяем длину ответа
             if len(gpt_response) > 4000:
                 send_long_message(message.chat.id, gpt_response)
             else:
                 bot.reply_to(message, gpt_response)
         else:
             bot.reply_to(message, "⚠️ База данных FAISS не загружена, поиск недоступен.")
+
 
 
 if __name__ == "__main__":
