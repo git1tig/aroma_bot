@@ -45,10 +45,7 @@ else:
     from langchain.schema import Document  # Добавляем импорт
 
     splitter = MarkdownHeaderTextSplitter(headers_to_split_on=[("#", "Header 1")])
-    text_chunks = splitter.split_text(my_text)  # ✅ Разбиваем текст
-
-    # Преобразуем в список объектов Document для FAISS
-    chunks = [Document(page_content=chunk) for chunk in text_chunks]
+    chunks = splitter.split_text(my_text)  # ✅ `split_text()` уже возвращает нужные объекты
 
     # Создаем векторное хранилище с OpenAI Embeddings
     db = FAISS.from_documents(chunks, embs)
