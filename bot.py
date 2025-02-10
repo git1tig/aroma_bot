@@ -7,7 +7,7 @@ import requests
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import MarkdownHeaderTextSplitter
-from langchain.schema import Document  # Добавляем импорт
+from langchain.schema import Document
 import re
 
 # === ЗАГРУЗКА API-КЛЮЧЕЙ ===
@@ -27,7 +27,7 @@ FAISS_INDEX_FILE = "/app/index.faiss"
 
 # === ПРОВЕРКА И ЗАГРУЗКА FAISS ===
 embs = OpenAIEmbeddings()
-db = None  # Объявляем db заранее
+db = None
 
 if os.path.exists(FAISS_INDEX_FILE):
     print("✅ Загружаем FAISS-хранилище из файла...")
@@ -36,21 +36,22 @@ else:
     print("⚠️ Файл FAISS-хранилища не найден, создаем заново...")
 
     if not os.path.exists(MASLA_FILE):
-        raise FileNotFoundError(f"❌ Файл {MASLA_FILE} не найден! Добавь его в каталог.")
+        raise FileNotFoundError(f"❌ Файл {MASLA_FILE} не найден! Добавьте его в каталог.")
 
     with open(MASLA_FILE, 'r', encoding='utf-8') as f:
         my_text = f.read()
 
     splitter = MarkdownHeaderTextSplitter(headers_to_split_on=[("#", "Header 1")])
-    chunks = splitter.split_text(my_text)  # ✅ `split_text()` уже возвращает нужные объекты
+    text_chunks = splitter.split_text(my_text)
 
+    chunks = [Document(page_content=chunk) for chunk in text_chunks]
 
     db = FAISS.from_documents(chunks, embs)
 
     db.save_local(FAISS_INDEX_FILE)
     print("✅ FAISS-хранилище создано и сохранено!")
 
-# === ЗАГРУЗКА ДАННЫХ ИЗ GOOGLE SHEETS (UTF-8) ===
+# === ЗАГРУЗКА ДАННЫХ ИЗ GOOGLE SHEETS ===
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1MknmvI9_YvjM7bge9tPryRKrrzCi-Ywc5ZfYiyb6Bdg/export?format=csv"
 COLUMN_NAMES = ["Name", "Vol", "Price"]
 
@@ -59,29 +60,46 @@ try:
     print("✅ Данные о маслах успешно загружены!")
 except Exception as e:
     print("❌ Ошибка загрузки данных:", e)
-    df = pd.DataFrame(columns=COLUMN_NAMES)  
+    df = pd.DataFrame(columns=COLUMN_NAMES)
 
 # === ХРАНИЛИЩЕ СОСТОЯНИЙ ===
 user_states = {}
 drops_counts = {}  
 current_oils = {}  
-task_is_over = {}  
 drop_session_changes = {}  
 
 WAITING_OIL_NAME = "waiting_for_oil"
-WAITING_DROPS = 'waiting_for_drop_quantity'
-WAITING_NEXT_OIL = 'waiting_for_next_oil'
-DROP_STOP = 'drop_stop'
+WAITING_DROPS = "waiting_for_drop_quantity"
+WAITING_NEXT_OIL = "waiting_for_next_oil"
+
+# === ФУНКЦИЯ ВЫВОДА ВОЗМОЖНОСТЕЙ БОТА ===
+def send_bot_options(chat_id):
+    bot.send_message(chat_id, 
+                     "✨ Что я могу для вас сделать? ✨\n\n"
+                     "🛠 *Мои возможности:*\n"
+                     "✅ `/р` – создать свою уникальную смесь масел\n"
+                     "✅ `/м` – получить информацию о любом эфирном масле\n"
+                     "✅ Или просто напишите свой вопрос, и я помогу разобраться!\n\n"
+                     "💡 Попробуйте прямо сейчас! 😊", 
+                     parse_mode="Markdown")
+
+# === ОБРАБОТЧИК КОМАНД ===
+@bot.message_handler(commands=['start'])
+def start_command(message):
+    bot.reply_to(message, "Привет! 👋 Я ваш помощник по эфирным маслам. Давайте начнём!")
+    send_bot_options(message.chat.id)
 
 @bot.message_handler(commands=['р'])
 def oil_command(message):
     bot.reply_to(message, "Введите название масла ('*' - закончить ввод):")
     user_states[message.chat.id] = WAITING_NEXT_OIL
+    send_bot_options(message.chat.id)
 
 @bot.message_handler(commands=['м'])
 def oil_command(message):
     bot.reply_to(message, "Введите название масла:")
     user_states[message.chat.id] = WAITING_OIL_NAME
+    send_bot_options(message.chat.id)
 
 @bot.message_handler(commands=['стоп'])
 def cancel_command(message):
@@ -107,7 +125,7 @@ def handle_input(message):
                 if docs[0][1] < 0.37:
                     bot.reply_to(message, f"Информация о {user_input}: {docs[0][0].page_content}")
                 else:
-                    docs = db.similarity_search(gpt_for_query(user_input, "Определи, какое масло подходит под запрос клиента..."), k=1)
+                    docs = db.similarity_search(user_input, k=1)
                     bot.reply_to(message, f'Под ваш запрос {user_input} подходит это: {docs[0].page_content}')
             else:
                 bot.reply_to(message, "⚠️ База данных FAISS не загружена, поиск недоступен.")
@@ -130,11 +148,15 @@ def handle_input(message):
             else:
                 total_cost = int(drops_counts.get(message.chat.id, 0))
                 mix_info = "; ".join(drop_session_changes.get(message.chat.id, []))
-                bot.reply_to(message, f"Смесь завершена! Состав: {mix_info}. Общая стоимость: {total_cost}р.")
-
+                bot.reply_to(message, f"🎉 Смесь завершена!\n\n"
+                                      f"🧪 *Состав смеси:* {mix_info}\n"
+                                      f"💰 *Общая стоимость:* {total_cost}р.", parse_mode="Markdown")
+                
                 drop_session_changes.pop(message.chat.id, None)
                 drops_counts.pop(message.chat.id, None)
                 user_states.pop(message.chat.id, None)
+
+                send_bot_options(message.chat.id)
 
         elif state == WAITING_DROPS:
             if not user_input.isdigit():
@@ -148,8 +170,7 @@ def handle_input(message):
             drops_counts[message.chat.id] += drops * price_per_drop
             drop_session_changes[message.chat.id].append(f"{oil_name}, {drops} капель")
 
-            existing_oils = "; ".join(drop_session_changes[message.chat.id])
-            bot.reply_to(message, f"Добавлено: {oil_name}, {drops} капель. Общая стоимость: {int(drops_counts[message.chat.id])}р. Введите следующее масло или '*' для завершения.")
+            bot.reply_to(message, f"Добавлено: {oil_name}, {drops} капель. Введите следующее масло или '*' для завершения.")
 
             user_states[message.chat.id] = WAITING_NEXT_OIL
 
