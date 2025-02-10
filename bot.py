@@ -137,8 +137,13 @@ def handle_input(message):
                 bot.reply_to(message, "⚠️ База данных FAISS не загружена, поиск недоступен.")
 
         elif state == WAITING_NEXT_OIL:
-            bot.reply_to(message, f"Вы выбрали масло: {user_input}. Сколько капель?")
-            user_states[message.chat.id] = WAITING_DROPS  # Переключаем состояние
+            # Проверяем, есть ли масло в базе из таблицы
+            oil_names = df["Name"].str.lower().tolist()  # Приводим названия масел к нижнему регистру
+            if user_input in oil_names:
+                bot.reply_to(message, f"Вы выбрали масло: {user_input}. Сколько капель?")
+                user_states[message.chat.id] = WAITING_DROPS  # Переключаем состояние
+            else:
+                bot.reply_to(message, f"⚠️ Масло '{user_input}' не найдено в базе. Попробуйте ввести другое название.")
 
         elif state == WAITING_DROPS:
             try:
