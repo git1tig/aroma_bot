@@ -42,9 +42,7 @@ else:
         my_text = f.read()
 
     splitter = MarkdownHeaderTextSplitter(headers_to_split_on=[("#", "Header 1")])
-    text_chunks = splitter.split_text(my_text)
-
-    chunks = [Document(page_content=chunk) for chunk in text_chunks]
+    chunks = splitter.split_text(my_text)  # ✅ `split_text()` уже возвращает нужные объекты
 
     db = FAISS.from_documents(chunks, embs)
 
