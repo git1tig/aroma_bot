@@ -8,7 +8,7 @@ import requests
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import MarkdownHeaderTextSplitter
-import re
+from langchain.schema import Document  # Добавляем импорт
 
 # === ЗАГРУЗКА API-КЛЮЧЕЙ ===
 load_dotenv()
@@ -22,8 +22,8 @@ openai.api_key = OPENAI_API_KEY
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 
 # === ПУТИ К ФАЙЛАМ ===
-MASLA_FILE = "/app/mono_oils.txt"  # Файл с описанием масел
-FAISS_INDEX_FILE = "/app/index.faiss"  # Файл хранилища FAISS
+MASLA_FILE = "/app/mono_oils.txt"
+FAISS_INDEX_FILE = "/app/index.faiss"
 
 # === ПРОВЕРКА И ЗАГРУЗКА FAISS ===
 embs = OpenAIEmbeddings()
@@ -42,10 +42,9 @@ else:
         my_text = f.read()
 
     # Разбиваем текст на части
-    from langchain.schema import Document  # Добавляем импорт
-
     splitter = MarkdownHeaderTextSplitter(headers_to_split_on=[("#", "Header 1")])
     chunks = splitter.split_text(my_text)  # ✅ `split_text()` уже возвращает нужные объекты
+
 
     # Создаем векторное хранилище с OpenAI Embeddings
     db = FAISS.from_documents(chunks, embs)
@@ -80,15 +79,9 @@ def gpt_for_query(prompt, system):
 
 # === ТЕЛЕГРАМ-БОТ ===
 user_states = {}
-drops_counts = {}
-current_oils = {}
-task_is_over = {}
-drop_session_changes = {}
 
 WAITING_OIL_NAME = "waiting_for_oil"
-WAITING_DROPS = 'waiting_for_drop_quantity'
-WAITING_NEXT_OIL = 'waiting_for_next_oil'
-DROP_STOP = 'drop_stop'
+WAITING_NEXT_OIL = "waiting_for_next_oil"
 
 @bot.message_handler(commands=['р'])
 def oil_command(message):
@@ -105,6 +98,14 @@ def cancel_command(message):
     bot.reply_to(message, "Команда отменена. Начните заново с /м.")
     user_states.pop(message.chat.id, None)
 
+# === ОТПРАВКА ДЛИННЫХ СООБЩЕНИЙ ===
+MAX_MESSAGE_LENGTH = 4000  # Чуть меньше 4096, чтобы избежать ошибок
+
+def send_long_message(chat_id, text):
+    """Функция для отправки длинных сообщений частями."""
+    for i in range(0, len(text), MAX_MESSAGE_LENGTH):
+        bot.send_message(chat_id, text[i:i + MAX_MESSAGE_LENGTH])
+
 @bot.message_handler(func=lambda message: True)
 def handle_input(message):
     user_input = message.text.strip().lower()
@@ -120,13 +121,16 @@ def handle_input(message):
                     bot.reply_to(message, f'Под ваш запрос {user_input} подходит это: {docs[0].page_content}')
             else:
                 bot.reply_to(message, "⚠️ База данных FAISS не загружена, поиск недоступен.")
-
     else:
         if db:
             gpt_generated = gpt_for_query(message.text, s1)
             docs = db.similarity_search(gpt_generated, k=5)
             response_text = "\n".join([doc.page_content for doc in docs])
-            bot.reply_to(message, response_text)
+
+            if len(response_text) > MAX_MESSAGE_LENGTH:
+                send_long_message(message.chat.id, response_text)
+            else:
+                bot.reply_to(message, response_text)
         else:
             bot.reply_to(message, "⚠️ База данных FAISS не загружена, поиск недоступен.")
 
