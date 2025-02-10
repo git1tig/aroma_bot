@@ -89,8 +89,12 @@ def start_command(message):
 
 @bot.message_handler(commands=['р'])
 def oil_command(message):
-    bot.reply_to(message, "Введите название масла (например, *Лаванда*, *Лимон*, *Мята*).\n\n"
-                          "🛑 *Чтобы закончить ввод смеси, отправьте `*`*.", parse_mode="Markdown")
+    bot.reply_to(
+        message, 
+        "Введите название масла (например, *Лаванда*, *Лимон*, *Мята*).\n\n"
+        "🛑 *Чтобы закончить ввод смеси, отправьте `\\*`*.", 
+        parse_mode="MarkdownV2"
+    )
     user_states[message.chat.id] = WAITING_NEXT_OIL
     
 
@@ -123,11 +127,11 @@ def handle_input(message):
             if db:
                 docs = db.similarity_search_with_score(user_input, k=1)
                 if docs[0][1] < 0.37:
-                    bot.reply_to(message, f"*Информация о {user_input}:*\n\n{docs[0][0].page_content}", parse_mode="Markdown")
+                    bot.reply_to(message, f"*Информация о {user_input}:*\n\n{docs[0][0].page_content}", parse_mode="MarkdownV2")
                     send_bot_options(message.chat.id)
                 else:
                     docs = db.similarity_search(user_input, k=1)
-                    bot.reply_to(message, f"*Под ваш запрос '{user_input}' подходит:*\n\n{docs[0].page_content}", parse_mode="Markdown")
+                    bot.reply_to(message, f"*Под ваш запрос '{user_input}' подходит:*\n\n{docs[0].page_content}", parse_mode="MarkdownV2")
                     send_bot_options(message.chat.id)
             else:
                 bot.reply_to(message, "⚠️ *База данных FAISS не загружена, поиск недоступен.*")
@@ -147,13 +151,13 @@ def handle_input(message):
 
                 existing_oils = "; ".join(drop_session_changes[message.chat.id])
                 bot.reply_to(message, f"*Уже введено:*\n\n{existing_oils}\n\n"
-                                      f"Теперь введите количество капель для *{user_input}*:", parse_mode="Markdown")
+                                      f"Теперь введите количество капель для *{user_input}*:", parse_mode="MarkdownV2")
             else:
                 total_cost = int(drops_counts.get(message.chat.id, 0))
                 mix_info = "; ".join(drop_session_changes.get(message.chat.id, []))
                 bot.reply_to(message, f"🎉 *Смесь завершена!*\n\n"
                                       f"🧪 *Состав смеси:* {mix_info}\n"
-                                      f"💰 *Общая стоимость:* {total_cost}р.\n", parse_mode="Markdown")
+                                      f"💰 *Общая стоимость:* {total_cost}р.\n", parse_mode="MarkdownV2")
                 send_bot_options(message.chat.id)
                 
                 drop_session_changes.pop(message.chat.id, None)
@@ -161,6 +165,34 @@ def handle_input(message):
                 user_states.pop(message.chat.id, None)
 
                 send_bot_options(message.chat.id)
+
+    else:
+        # Если это не команда /м или /р, отправляем запрос в FAISS и ChatGPT-4o
+        if db:
+            docs = db.similarity_search(user_input, k=3)  # Ищем топ-3 релевантных отрывка
+            extracted_texts = [doc.page_content for doc in docs]
+            faiss_results = "\n\n".join(extracted_texts)
+
+            gpt_prompt = f"""
+            Пользователь задал вопрос: "{user_input}".
+
+            Вот информация, найденная в базе знаний:
+            {faiss_results}
+
+            Используй эти данные и ответь пользователю понятным языком.
+            """
+
+            # Отправляем в GPT-4o-mini
+            gpt_response = gpt_for_query(gpt_prompt, "Ты эксперт по эфирным маслам. Ответь развернуто и понятно.")
+
+            # Проверяем длину ответа и отправляем
+            if len(gpt_response) > 4000:
+                send_long_message(message.chat.id, gpt_response)
+            else:
+                bot.reply_to(message, gpt_response)
+        else:
+            bot.reply_to(message, "⚠️ *База данных FAISS не загружена, поиск недоступен.*")
+
 
 if __name__ == "__main__":
     bot.infinity_polling()
