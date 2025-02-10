@@ -67,6 +67,8 @@ except Exception as e:
 # === GPT-ФУНКЦИИ ===
 s1 = "Сгенерируй ключевые слова для поиска по векторной базе данных масел..."
 s2 = "Определи, какое масло подходит под запрос клиента..."
+gpt_sys = 'Ты гениальный ароматерапевт и специалист по эфирным маслам, дай развернутый ответ на вопрос клиента, если это проблема, определи пути её решения с помощью эфирных масел, если это запрос на информацию, дай структурированный ответ. На вопросы, никак не связанные с эфирными маслами отвечай крайне коротко, с юмором, и говори, что тебя такие темы не интересуют. Если речь идёт о персонаже, предположи какое эфирное масло ему соответствует'
+
 
 def gpt_for_query(prompt, system):
     response = openai.chat.completions.create(
@@ -108,32 +110,53 @@ def send_long_message(chat_id, text):
 
 @bot.message_handler(func=lambda message: True)
 def handle_input(message):
-    print(f"📩 Получено сообщение: {message.text}")  # <--- Добавлено для отладки
     user_input = message.text.strip().lower()
+    print(f"📩 Получено сообщение: {user_input}")  # Логируем входящее сообщение
 
     if message.chat.id in user_states:
         if user_states[message.chat.id] == WAITING_OIL_NAME:
             if db:
-                docs = db.similarity_search_with_score(user_input, k=1)
-                if docs[0][1] < 0.37:
-                    bot.reply_to(message, f"Информация о {user_input}: {docs[0][0].page_content}")
-                else:
-                    docs = db.similarity_search(gpt_for_query(user_input, s2), k=1)
-                    bot.reply_to(message, f'Под ваш запрос {user_input} подходит это: {docs[0].page_content}')
+                docs = db.similarity_search_with_score(user_input, k=3)  # Ищем топ-3 совпадения
+                extracted_texts = [doc[0].page_content for doc in docs]  # Извлекаем текст
+                faiss_results = "\n".join(extracted_texts)
+
+                # Создаём промпт для GPT-4o-mini
+                gpt_prompt = f"""
+                Пользователь задал вопрос: "{user_input}".
+                Вот информация, найденная в базе знаний:
+                {faiss_results}
+                Используй эти данные и ответь пользователю понятным языком.
+                """
+
+                # Отправляем в GPT-4o-mini
+                gpt_response = gpt_for_query(gpt_prompt, "Ты эксперт по эфирным маслам. Ответь развернуто и понятно.")
+
+                bot.reply_to(message, gpt_response)
             else:
                 bot.reply_to(message, "⚠️ База данных FAISS не загружена, поиск недоступен.")
     else:
         if db:
-            gpt_generated = gpt_for_query(message.text, s1)
-            docs = db.similarity_search(gpt_generated, k=5)
-            response_text = "\n".join([doc.page_content for doc in docs])
+            docs = db.similarity_search(user_input, k=5)
+            extracted_texts = [doc.page_content for doc in docs]
+            faiss_results = "\n".join(extracted_texts)
 
-            if len(response_text) > MAX_MESSAGE_LENGTH:
-                send_long_message(message.chat.id, response_text)
+            gpt_prompt = f"""
+            Пользователь задал вопрос: "{user_input}".
+            Вот информация, найденная в базе знаний:
+            {faiss_results}
+            Используй эти данные и ответь пользователю понятным языком.
+            """
+
+            gpt_response = gpt_for_query(gpt_prompt, gpt_sys)
+
+            # Проверяем длину ответа
+            if len(gpt_response) > 4000:
+                send_long_message(message.chat.id, gpt_response)
             else:
-                bot.reply_to(message, response_text)
+                bot.reply_to(message, gpt_response)
         else:
             bot.reply_to(message, "⚠️ База данных FAISS не загружена, поиск недоступен.")
+
 
 if __name__ == "__main__":
     print("🤖 Бот запущен! Ожидаем сообщения...")
