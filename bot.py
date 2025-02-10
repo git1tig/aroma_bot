@@ -97,12 +97,13 @@ def oil_command(message):
 def oil_command(message):
     bot.reply_to(message, "Введите название масла:")
     user_states[message.chat.id] = WAITING_OIL_NAME
-    send_bot_options(message.chat.id)
+    #send_bot_options(message.chat.id)
 
 @bot.message_handler(commands=['стоп'])
 def cancel_command(message):
     bot.reply_to(message, "Команда отменена. Начните заново с /м.")
     user_states.pop(message.chat.id, None)
+    send_bot_options(message.chat.id)
 
 MAX_MESSAGE_LENGTH = 4000  
 
@@ -122,9 +123,11 @@ def handle_input(message):
                 docs = db.similarity_search_with_score(user_input, k=1)
                 if docs[0][1] < 0.37:
                     bot.reply_to(message, f"Информация о {user_input}: {docs[0][0].page_content}")
+                    send_bot_options(message.chat.id)
                 else:
                     docs = db.similarity_search(user_input, k=1)
                     bot.reply_to(message, f'Под ваш запрос {user_input} подходит это: {docs[0].page_content}')
+                    send_bot_options(message.chat.id)
             else:
                 bot.reply_to(message, "⚠️ База данных FAISS не загружена, поиск недоступен.")
 
