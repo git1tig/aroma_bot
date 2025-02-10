@@ -29,10 +29,10 @@ FAISS_INDEX_FILE = "/app/index.faiss"  # Файл хранилища FAISS
 embs = OpenAIEmbeddings()
 
 if os.path.exists(FAISS_INDEX_FILE):
-    print("✅ Загружаем FAISS-хранилище из файла...")
-    db = FAISS.load_local(FAISS_INDEX_FILE, embs)
+    print(" Загружаем FAISS-хранилище из файла...")
+    db = FAISS.load_local(FAISS_INDEX_FILE, embs, allow_dangerous_deserialization=True)
 else:
-    print("⚠️ Файл FAISS-хранилища не найден, создаем заново...")
+    print("Файл FAISS-хранилища не найден, создаем заново...")
 
     if not os.path.exists(MASLA_FILE):
         print(f"Проверяем путь: {MASLA_FILE}")
