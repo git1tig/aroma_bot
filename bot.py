@@ -19,7 +19,7 @@ if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
     raise ValueError("❌ Отсутствует TELEGRAM_BOT_TOKEN или OPENAI_API_KEY в .env файле!")
 
 openai.api_key = OPENAI_API_KEY
-bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
+bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="Markdown")
 
 # === ПУТИ К ФАЙЛАМ ===
 MASLA_FILE = "/app/mono_oils.txt"
@@ -73,35 +73,36 @@ WAITING_NEXT_OIL = "waiting_for_next_oil"
 # === ФУНКЦИЯ ВЫВОДА ВОЗМОЖНОСТЕЙ БОТА ===
 def send_bot_options(chat_id):
     bot.send_message(chat_id, 
-                     "✨ Что я могу для вас сделать? ✨\n\n"
+                     "*✨ Что я могу для вас сделать? ✨*\n\n"
                      "🛠 *Мои возможности:*\n"
-                     "✅ `/р` – создать свою уникальную смесь масел\n"
-                     "✅ `/м` – получить информацию о любом эфирном масле\n"
-                     "✅ Или просто напишите свой вопрос, и я помогу разобраться!\n\n"
-                     "💡 Попробуйте прямо сейчас! 😊", 
+                     "✅ `/р` – *Создать свою уникальную смесь масел*\n"
+                     "✅ `/м` – *Получить информацию о любом эфирном масле*\n"
+                     "✅ *Просто напишите свой вопрос*, и я помогу разобраться!\n\n"
+                     "💡 *Попробуйте прямо сейчас!* 😊", 
                      parse_mode="Markdown")
 
 # === ОБРАБОТЧИК КОМАНД ===
 @bot.message_handler(commands=['start'])
 def start_command(message):
-    bot.reply_to(message, "Привет! 👋 Я ваш помощник по эфирным маслам. Давайте начнём!")
+    bot.reply_to(message, "*Привет! 👋 Я ваш помощник по эфирным маслам.*\n\nДавайте начнём! 😊")
     send_bot_options(message.chat.id)
 
 @bot.message_handler(commands=['р'])
 def oil_command(message):
-    bot.reply_to(message, "Введите название масла ('*' - закончить ввод):")
+    bot.reply_to(message, "Введите название масла (например, *Лаванда*, *Лимон*, *Мята*).\n\n"
+                          "🛑 *Чтобы закончить ввод смеси, отправьте `*`*.", parse_mode="Markdown")
     user_states[message.chat.id] = WAITING_NEXT_OIL
-    send_bot_options(message.chat.id)
+    
 
 @bot.message_handler(commands=['м'])
 def oil_command(message):
-    bot.reply_to(message, "Введите название масла:")
+    bot.reply_to(message, "🔎 *Введите название масла, и я найду информацию о нём!*")
     user_states[message.chat.id] = WAITING_OIL_NAME
-    #send_bot_options(message.chat.id)
+    
 
 @bot.message_handler(commands=['стоп'])
 def cancel_command(message):
-    bot.reply_to(message, "Команда отменена. Начните заново с /м.")
+    bot.reply_to(message, "🚫 *Команда отменена.* Начните заново с `/м` или `/р`.")
     user_states.pop(message.chat.id, None)
     send_bot_options(message.chat.id)
 
@@ -122,19 +123,19 @@ def handle_input(message):
             if db:
                 docs = db.similarity_search_with_score(user_input, k=1)
                 if docs[0][1] < 0.37:
-                    bot.reply_to(message, f"Информация о {user_input}: {docs[0][0].page_content}")
+                    bot.reply_to(message, f"*Информация о {user_input}:*\n\n{docs[0][0].page_content}", parse_mode="Markdown")
                     send_bot_options(message.chat.id)
                 else:
                     docs = db.similarity_search(user_input, k=1)
-                    bot.reply_to(message, f'Под ваш запрос {user_input} подходит это: {docs[0].page_content}')
+                    bot.reply_to(message, f"*Под ваш запрос '{user_input}' подходит:*\n\n{docs[0].page_content}", parse_mode="Markdown")
                     send_bot_options(message.chat.id)
             else:
-                bot.reply_to(message, "⚠️ База данных FAISS не загружена, поиск недоступен.")
+                bot.reply_to(message, "⚠️ *База данных FAISS не загружена, поиск недоступен.*")
 
         elif state == WAITING_NEXT_OIL:
             if user_input != '*':
                 if user_input.capitalize() not in df['Name'].values:
-                    bot.reply_to(message, f'⚠️ Масло "{user_input}" не найдено. Попробуйте другое:')
+                    bot.reply_to(message, f'⚠️ *Масло "{user_input}" не найдено.* Попробуйте другое:')
                     return
                 
                 if message.chat.id not in drop_session_changes:
@@ -145,35 +146,21 @@ def handle_input(message):
                 user_states[message.chat.id] = WAITING_DROPS
 
                 existing_oils = "; ".join(drop_session_changes[message.chat.id])
-                bot.reply_to(message, f"Уже введено: {existing_oils}. Теперь введите количество капель для {user_input}:")
+                bot.reply_to(message, f"*Уже введено:*\n\n{existing_oils}\n\n"
+                                      f"Теперь введите количество капель для *{user_input}*:", parse_mode="Markdown")
             else:
                 total_cost = int(drops_counts.get(message.chat.id, 0))
                 mix_info = "; ".join(drop_session_changes.get(message.chat.id, []))
-                bot.reply_to(message, f"🎉 Смесь завершена!\n\n"
+                bot.reply_to(message, f"🎉 *Смесь завершена!*\n\n"
                                       f"🧪 *Состав смеси:* {mix_info}\n"
-                                      f"💰 *Общая стоимость:* {total_cost}р.", parse_mode="Markdown")
+                                      f"💰 *Общая стоимость:* {total_cost}р.\n", parse_mode="Markdown")
+                send_bot_options(message.chat.id)
                 
                 drop_session_changes.pop(message.chat.id, None)
                 drops_counts.pop(message.chat.id, None)
                 user_states.pop(message.chat.id, None)
 
                 send_bot_options(message.chat.id)
-
-        elif state == WAITING_DROPS:
-            if not user_input.isdigit():
-                bot.reply_to(message, f'⚠️ "{user_input}" не является числом. Введите количество капель.')
-                return
-
-            drops = int(user_input)
-            oil_name = current_oils[message.chat.id].capitalize()
-            price_per_drop = int(df.loc[df["Name"] == oil_name, "Price"]) / (int(df.loc[df["Name"] == oil_name, "Vol"]) * 25)
-
-            drops_counts[message.chat.id] += drops * price_per_drop
-            drop_session_changes[message.chat.id].append(f"{oil_name}, {drops} капель")
-
-            bot.reply_to(message, f"Добавлено: {oil_name}, {drops} капель. Введите следующее масло или '*' для завершения.")
-
-            user_states[message.chat.id] = WAITING_NEXT_OIL
 
 if __name__ == "__main__":
     bot.infinity_polling()
