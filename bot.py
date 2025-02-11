@@ -41,7 +41,7 @@ else:
         my_text = f.read()
     splitter = MarkdownHeaderTextSplitter(headers_to_split_on=[("#", "Header 1")])
     chunks = splitter.split_text(my_text)  # ✅ `split_text()` уже возвращает нужные объекты
-    print(f"[DEBUG] Текст разбит на {len(text_chunks)} частей")
+    
     db = FAISS.from_documents(chunks, embs)
     db.save_local(FAISS_INDEX_FILE)
     print("[DEBUG] FAISS-хранилище создано и сохранено!")
