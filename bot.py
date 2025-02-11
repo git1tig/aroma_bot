@@ -83,69 +83,83 @@ def gpt_for_query(prompt: str, system_message: str) -> str:
     )
     return response.choices[0].message.content
 
-# === ФУНКЦИЯ ЭКРАНИРОВАНИЯ ДЛЯ MARKDOWNV2 ===
-def escape_markdown(text):
-    """Экранирует символы для MarkdownV2, чтобы избежать ошибок Telegram."""
-    escape_chars = r"\_*[]()~`>#+-=|{}.!<>"
-    return "".join(f"\\{char}" if char in escape_chars else char for char in text)
+# === ФУНКЦИЯ ПОИСКА ИНФОРМАЦИИ ПО FAISS ===
+def search_faiss(query):
+    docs = db.similarity_search_with_score(query, k=1)
+    if docs and docs[0][1] < 0.37:
+        return docs[0][0].page_content
+    return None
 
 # === ФУНКЦИЯ ВЫВОДА ВОЗМОЖНОСТЕЙ БОТА ===
 def send_bot_options(chat_id):
     bot.send_message(chat_id, 
-                     escape_markdown("*✨ Что я могу для вас сделать? ✨*\n\n"
+                     "*✨ Что я могу для вас сделать? ✨*\n\n"
                      "🛠 *Мои возможности:*\n"
                      "✅ `/р` – *Создать свою уникальную смесь масел*\n"
                      "✅ `/м` – *Получить информацию о любом эфирном масле*\n"
                      "✅ *Просто напишите свой вопрос*, и я помогу разобраться!\n\n"
-                     "💡 *Попробуйте прямо сейчас!* 😊"), 
+                     "💡 *Попробуйте прямо сейчас!* 😊", 
                      parse_mode="MarkdownV2")
 
 # === ОБРАБОТЧИК КОМАНД ===
 @bot.message_handler(commands=['start'])
 def start_command(message):
-    bot.reply_to(message, escape_markdown("Привет! 👋 Я ваш помощник по эфирным маслам.\n\nДавайте начнём! 😊"))
-    send_bot_options(message.chat.id)
-
-@bot.message_handler(commands=['р'])
-def oil_command(message):
-    bot.reply_to(
-        message, 
-        escape_markdown("Введите название масла (например, *Лаванда*, *Лимон*, *Мята*).\n\n"
-                        "🛑 Чтобы закончить ввод смеси, отправьте `*`."), 
-        parse_mode="MarkdownV2"
-    )
-    user_states[message.chat.id] = WAITING_NEXT_OIL
+    bot.reply_to(message, "Привет! 👋 Я ваш помощник по эфирным маслам. Давайте начнём!")
     send_bot_options(message.chat.id)
 
 @bot.message_handler(commands=['м'])
 def oil_command(message):
-    bot.reply_to(message, escape_markdown("🔎 Введите название масла, и я найду информацию о нём!"), parse_mode="MarkdownV2")
+    bot.reply_to(message, "Введите название масла:")
     user_states[message.chat.id] = WAITING_OIL_NAME
-    send_bot_options(message.chat.id)
+
+@bot.message_handler(commands=['р'])
+def mix_command(message):
+    bot.reply_to(message, "Введите название масла ('*' - завершить ввод):")
+    user_states[message.chat.id] = WAITING_NEXT_OIL
 
 @bot.message_handler(func=lambda message: True)
 def handle_input(message):
     user_input = message.text.strip().lower()
 
-    if db:
-        # 🔹 1. Генерируем ключевые слова
-        gpt_prompt_keywords = f"Определи ключевые слова для поиска по базе знаний об эфирных маслах на основе запроса: '{user_input}'."
-        keywords = gpt_for_query(gpt_prompt_keywords, "Ты эксперт по эфирным маслам. Генерируй ключевые слова для поиска.")
+    if message.chat.id in user_states:
+        state = user_states[message.chat.id]
 
-        # 🔹 2. Выполняем поиск в FAISS
-        docs = db.similarity_search(keywords, k=3)
-        extracted_texts = [doc.page_content for doc in docs]
-        faiss_results = "\n\n".join(extracted_texts)
+        if state == WAITING_OIL_NAME:
+            faiss_result = search_faiss(user_input)
+            if faiss_result:
+                bot.reply_to(message, f"Информация о {user_input}:\n\n{faiss_result}")
+            else:
+                bot.reply_to(message, "❌ Информация не найдена в базе.")
 
-        # 🔹 3. Передаём в GPT-4o
-        gpt_prompt_final = f"Вопрос пользователя: '{user_input}'.\n\nНайденная информация из базы знаний:\n{faiss_results}\n\nИспользуй эти данные и ответь пользователю понятным языком."
-        gpt_response = gpt_for_query(gpt_prompt_final, "Ты эксперт по эфирным маслам. Ответь развернуто и понятно.")
+        elif state == WAITING_NEXT_OIL:
+            if user_input != "*":
+                if user_input.capitalize() not in df['Name'].values:
+                    bot.reply_to(message, f'❌ Масло "{user_input}" не найдено. Попробуйте снова:')
+                    return
+                
+                current_oils[message.chat.id] = user_input
+                user_states[message.chat.id] = WAITING_DROPS
+                bot.reply_to(message, f"Введите количество капель для {user_input}:")
+            else:
+                total_cost = int(drops_counts.get(message.chat.id, 0))
+                mix_info = "; ".join(drop_session_changes.get(message.chat.id, []))
+                bot.reply_to(message, f"🎉 Смесь завершена!\n\n"
+                                      f"🧪 *Состав смеси:* {mix_info}\n"
+                                      f"💰 *Общая стоимость:* {total_cost}р.")
+                
+                drop_session_changes.pop(message.chat.id, None)
+                drops_counts.pop(message.chat.id, None)
+                user_states.pop(message.chat.id, None)
 
-        # 🔹 4. Отправляем ответ пользователю
-        bot.reply_to(message, escape_markdown(gpt_response), parse_mode="MarkdownV2")
-    else:
-        bot.reply_to(message, "⚠️ *База данных FAISS не загружена, поиск недоступен.*")
+        elif state == WAITING_DROPS:
+            if not user_input.isdigit():
+                bot.reply_to(message, "❌ Введите корректное количество капель:")
+                return
 
-# === ЗАПУСК БОТА ===
+            drops_counts[message.chat.id] = drops_counts.get(message.chat.id, 0) + int(user_input)
+            drop_session_changes[message.chat.id] = drop_session_changes.get(message.chat.id, []) + [f"{current_oils[message.chat.id]}, {user_input} капель"]
+
+            bot.reply_to(message, f"Добавлено: {current_oils[message.chat.id]}, {user_input} капель. Введите следующее масло или '*' для завершения.")
+
 if __name__ == "__main__":
     bot.infinity_polling()
