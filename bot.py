@@ -95,6 +95,13 @@ def send_bot_options(chat_id):
                      parse_mode="MarkdownV2")
 
 # === ОБРАБОТЧИК КОМАНД ===
+
+def escape_markdown(text):
+    """Экранирует символы для MarkdownV2."""
+    escape_chars = r"\_*[]()~`>#+-=|{}.!<>"
+    return "".join(f"\\{char}" if char in escape_chars else char for char in text)
+
+
 @bot.message_handler(commands=['start'])
 def start_command(message):
     bot.reply_to(message, "*Привет! 👋 Я ваш помощник по эфирным маслам.*\n\nДавайте начнём! 😊")
@@ -113,9 +120,10 @@ def oil_command(message):
 
 @bot.message_handler(commands=['м'])
 def oil_command(message):
-    bot.reply_to(message, "🔎 *Введите название масла, и я найду информацию о нём!*")
+    bot.reply_to(message, "🔎 *Введите название масла, и я найду информацию о нём\\!*", parse_mode="MarkdownV2")
     user_states[message.chat.id] = WAITING_OIL_NAME
     send_bot_options(message.chat.id)
+
 
 @bot.message_handler(func=lambda message: True)
 def handle_input(message):
