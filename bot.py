@@ -83,6 +83,12 @@ def gpt_for_query(prompt: str, system_message: str) -> str:
     )
     return response.choices[0].message.content
 
+def escape_markdown(text):
+    """Экранирует специальные символы для MarkdownV2, чтобы избежать ошибок Telegram."""
+    escape_chars = r"\_*[]()~`>#+-=|{}.!<>"
+    return "".join(f"\\{char}" if char in escape_chars else char for char in text)
+
+
 # === ФУНКЦИЯ ПОИСКА ИНФОРМАЦИИ ПО FAISS ===
 def search_faiss(query):
     docs = db.similarity_search_with_score(query, k=1)
@@ -104,7 +110,7 @@ def send_bot_options(chat_id):
 # === ОБРАБОТЧИК КОМАНД ===
 @bot.message_handler(commands=['start'])
 def start_command(message):
-    bot.reply_to(message, "Привет! 👋 Я ваш помощник по эфирным маслам. Давайте начнём!")
+    bot.reply_to(message, escape_markdown("Привет! 👋 Я ваш помощник по эфирным маслам. Давайте начнём!"), parse_mode="MarkdownV2")
     send_bot_options(message.chat.id)
 
 @bot.message_handler(commands=['м'])
@@ -113,11 +119,12 @@ def oil_command(message):
     user_states[message.chat.id] = WAITING_OIL_NAME
 
 
+
 @bot.message_handler(commands=['р'])
 def mix_command(message):
     bot.reply_to(
         message, 
-        escape_markdown("Введите название масла (например, *Лаванда*, *Лимон*, *Мята*).\n\n"
+        escape_markdown("Введите название масла (например, Лаванда, Лимон, Мята).\n\n"
                         "🛑 Чтобы закончить ввод смеси, отправьте `*`."), 
         parse_mode="MarkdownV2"
     )
