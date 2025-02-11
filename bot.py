@@ -117,17 +117,6 @@ def send_long_message(chat_id, text):
         bot.send_message(chat_id, text[i:i + MAX_MESSAGE_LENGTH])
 
 @bot.message_handler(func=lambda message: True)
-def gpt_for_query(prompt, system):
-    """Отправляет запрос в ChatGPT-4o-mini и получает ответ."""
-    response = openai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=1
-    )
-    return response.choices[0].message.content
 def handle_input(message):
     user_input = message.text.strip().lower()
 
@@ -139,11 +128,9 @@ def handle_input(message):
                 docs = db.similarity_search_with_score(user_input, k=1)
                 if docs[0][1] < 0.37:
                     bot.reply_to(message, f"*Информация о {user_input}:*\n\n{docs[0][0].page_content}", parse_mode="MarkdownV2")
-                    send_bot_options(message.chat.id)
                 else:
                     docs = db.similarity_search(user_input, k=1)
                     bot.reply_to(message, f"*Под ваш запрос '{user_input}' подходит:*\n\n{docs[0].page_content}", parse_mode="MarkdownV2")
-                    send_bot_options(message.chat.id)
             else:
                 bot.reply_to(message, "⚠️ *База данных FAISS не загружена, поиск недоступен.*")
 
@@ -169,7 +156,6 @@ def handle_input(message):
                 bot.reply_to(message, f"🎉 *Смесь завершена!*\n\n"
                                       f"🧪 *Состав смеси:* {mix_info}\n"
                                       f"💰 *Общая стоимость:* {total_cost}р.\n", parse_mode="MarkdownV2")
-                send_bot_options(message.chat.id)
                 
                 drop_session_changes.pop(message.chat.id, None)
                 drops_counts.pop(message.chat.id, None)
@@ -178,13 +164,24 @@ def handle_input(message):
                 send_bot_options(message.chat.id)
 
     else:
-        # Если это не команда /м или /р, отправляем запрос в FAISS и ChatGPT-4o
         if db:
-            docs = db.similarity_search(user_input, k=3)  # Ищем топ-3 релевантных отрывка
+            # 🔹 1. Генерируем ключевые слова с помощью GPT-4o
+            gpt_prompt_keywords = f"""
+            Пользователь задал вопрос: "{user_input}".
+            Определи ключевые слова или фразы для поиска информации в базе знаний об эфирных маслах.
+            Ответ должен содержать только ключевые слова, без пояснений.
+            """
+            keywords = gpt_for_query(gpt_prompt_keywords, "Ты эксперт по эфирным маслам. Определи ключевые слова для поиска.")
+
+            print(f"🔍 Генерированные ключевые слова: {keywords}")
+
+            # 🔹 2. Выполняем поиск в FAISS по ключевым словам
+            docs = db.similarity_search(keywords, k=3)
             extracted_texts = [doc.page_content for doc in docs]
             faiss_results = "\n\n".join(extracted_texts)
 
-            gpt_prompt = f"""
+            # 🔹 3. Передаём запрос пользователя и результаты поиска в GPT-4o
+            gpt_prompt_final = f"""
             Пользователь задал вопрос: "{user_input}".
 
             Вот информация, найденная в базе знаний:
@@ -192,11 +189,9 @@ def handle_input(message):
 
             Используй эти данные и ответь пользователю понятным языком.
             """
+            gpt_response = gpt_for_query(gpt_prompt_final, "Ты эксперт по эфирным маслам. Ответь развернуто и понятно.")
 
-            # Отправляем в GPT-4o-mini
-            gpt_response = gpt_for_query(gpt_prompt, "Ты эксперт по эфирным маслам. Ответь развернуто и понятно.")
-
-            # Проверяем длину ответа и отправляем
+            # 🔹 4. Отправляем ответ пользователю
             if len(gpt_response) > 4000:
                 send_long_message(message.chat.id, gpt_response)
             else:
