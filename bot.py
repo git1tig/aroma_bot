@@ -89,13 +89,6 @@ def escape_markdown(text):
     escape_chars = r"\_*[]()~`>#+-=|{}.!<>"
     return "".join(f"\\{char}" if char in escape_chars else char for char in text)
 
-# === ФУНКЦИЯ ПОИСКА ИНФОРМАЦИИ ПО FAISS ===
-def search_faiss(query):
-    docs = db.similarity_search_with_score(query, k=1)
-    if docs and docs[0][1] < 0.37:
-        return docs[0][0].page_content
-    return None
-
 # === ОБРАБОТЧИК КОМАНД ===
 @bot.message_handler(commands=['start'])
 def start_command(message):
@@ -123,14 +116,7 @@ def handle_input(message):
     if message.chat.id in user_states:
         state = user_states[message.chat.id]
 
-        if state == WAITING_OIL_NAME:
-            faiss_result = search_faiss(user_input)
-            if faiss_result:
-                bot.reply_to(message, escape_markdown(f"Информация о {user_input}:\n\n{faiss_result}"), parse_mode="MarkdownV2")
-            else:
-                bot.reply_to(message, escape_markdown("❌ Информация не найдена в базе\\."), parse_mode="MarkdownV2")
-
-        elif state == WAITING_NEXT_OIL:
+        if state == WAITING_NEXT_OIL:
             if user_input != "*":
                 if user_input.capitalize() not in df['Name'].values:
                     bot.reply_to(message, escape_markdown(f'❌ Масло "{user_input}" не найдено\\.\nПопробуйте снова:'), parse_mode="MarkdownV2")
@@ -146,6 +132,29 @@ def handle_input(message):
                                                       f"🧪 *Состав смеси:* {mix_info}\n"
                                                       f"💰 *Общая стоимость:* {total_cost}р\\."), 
                              parse_mode="MarkdownV2")
+
+        elif state == WAITING_DROPS:
+            if not user_input.isdigit():
+                bot.reply_to(message, escape_markdown("❌ Введите корректное количество капель\\:"), parse_mode="MarkdownV2")
+                return
+
+            oil_name = current_oils[message.chat.id].capitalize()
+            drop_count = int(user_input)
+
+            if oil_name in df["Name"].values:
+                oil_price = df.loc[df["Name"] == oil_name, "Price"].values[0]
+                oil_volume = df.loc[df["Name"] == oil_name, "Vol"].values[0]
+                drop_price = oil_price / (oil_volume * 25)
+                total_price = drop_price * drop_count
+            else:
+                total_price = 0
+
+            drops_counts[message.chat.id] = drops_counts.get(message.chat.id, 0) + total_price
+            drop_session_changes[message.chat.id] = drop_session_changes.get(message.chat.id, []) + [f"{oil_name}, {user_input} капель"]
+
+            bot.reply_to(message, escape_markdown(f"✅ Добавлено: *{oil_name}* — {drop_count} капель\\.\n"
+                                                  f"💰 Примерная стоимость: {int(total_price)}р\\.\n\n"
+                                                  f"Введите название следующего масла или отправьте `*` для завершения\\."), parse_mode="MarkdownV2")
 
 if __name__ == "__main__":
     bot.infinity_polling()
