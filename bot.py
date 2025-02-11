@@ -40,9 +40,8 @@ else:
     with open(MASLA_FILE, 'r', encoding='utf-8') as f:
         my_text = f.read()
     splitter = MarkdownHeaderTextSplitter(headers_to_split_on=[("#", "Header 1")])
-    text_chunks = splitter.split_text(my_text)
+    chunks = splitter.split_text(my_text)  # ✅ `split_text()` уже возвращает нужные объекты
     print(f"[DEBUG] Текст разбит на {len(text_chunks)} частей")
-    chunks = [Document(page_content=chunk) for chunk in text_chunks]
     db = FAISS.from_documents(chunks, embs)
     db.save_local(FAISS_INDEX_FILE)
     print("[DEBUG] FAISS-хранилище создано и сохранено!")
