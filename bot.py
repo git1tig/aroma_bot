@@ -105,6 +105,7 @@ def show_bot_capabilities(chat_id):
 def start_command(message):
     print(f"[DEBUG] /start от chat_id={message.chat.id}")
     bot.reply_to(message, escape_markdown("Привет! 👋 Я ваш помощник по эфирным маслам\\.\n\nДавайте начнём!"), parse_mode="MarkdownV2")
+    show_bot_capabilities(message.chat.id)
 
 @bot.message_handler(commands=['м'])
 def oil_command(message):
@@ -139,11 +140,11 @@ def handle_input(message):
             if docs:
                 bot.reply_to(message, escape_markdown(f"📖 *Информация о {user_input}*\n\n{docs[0].page_content}"), parse_mode="MarkdownV2")
                 print(f"[DEBUG] Информация найдена для '{user_input}'")
-                bot.reply_to(message, escape_markdown("Привет! 👋 Я ваш помощник по эфирным маслам\\.\n\nДавайте начнём!"), parse_mode="MarkdownV2")
+                show_bot_capabilities(message.chat.id)
             else:
                 bot.reply_to(message, escape_markdown("❌ Информация не найдена в базе\\."), parse_mode="MarkdownV2")
                 print(f"[DEBUG] Информация не найдена для '{user_input}'")
-                bot.reply_to(message, escape_markdown("Привет! 👋 Я ваш помощник по эфирным маслам\\.\n\nДавайте начнём!"), parse_mode="MarkdownV2")
+                show_bot_capabilities(message.chat.id)
             user_states.pop(message.chat.id, None)
             print(f"[DEBUG] Состояние для chat_id={message.chat.id} очищено")
         elif state == WAITING_NEXT_OIL:
@@ -155,7 +156,7 @@ def handle_input(message):
                                                       f"🧪 *Состав смеси:*\n{mix_info}\n\n"
                                                       f"💰 *Общая стоимость:* {total_cost}р\\."), parse_mode="MarkdownV2")
                 print(f"[DEBUG] Смесь завершена для chat_id={message.chat.id}")
-                bot.reply_to(message, escape_markdown("Привет! 👋 Я ваш помощник по эфирным маслам\\.\n\nДавайте начнём!"), parse_mode="MarkdownV2")
+                show_bot_capabilities(message.chat.id)
                 # Очищаем историю смеси, связанную с данным chat_id
                 drops_counts.pop(message.chat.id, None)
                 drop_session_changes.pop(message.chat.id, None)
