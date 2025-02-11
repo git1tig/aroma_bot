@@ -70,19 +70,6 @@ WAITING_OIL_NAME = "waiting_for_oil"
 WAITING_DROPS = "waiting_for_drop_quantity"
 WAITING_NEXT_OIL = "waiting_for_next_oil"
 
-# === ФУНКЦИЯ GPT-4o ===
-def gpt_for_query(prompt: str, system_message: str) -> str:
-    """Отправляет запрос в ChatGPT-4o-mini и получает ответ."""
-    response = openai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=1
-    )
-    return response.choices[0].message.content
-
 # === ФУНКЦИЯ ЭКРАНИРОВАНИЯ ДЛЯ MARKDOWNV2 ===
 def escape_markdown(text):
     """Экранирует специальные символы для MarkdownV2, чтобы избежать ошибок Telegram."""
@@ -117,21 +104,23 @@ def handle_input(message):
         state = user_states[message.chat.id]
 
         if state == WAITING_NEXT_OIL:
-            if user_input != "*":
-                if user_input.capitalize() not in df['Name'].values:
-                    bot.reply_to(message, escape_markdown(f'❌ Масло "{user_input}" не найдено\\.\nПопробуйте снова:'), parse_mode="MarkdownV2")
-                    return
-
-                current_oils[message.chat.id] = user_input
-                user_states[message.chat.id] = WAITING_DROPS
-                bot.reply_to(message, escape_markdown(f"Введите количество капель для {user_input}\\:"), parse_mode="MarkdownV2")
-            else:
+            if user_input == "*":
                 total_cost = int(drops_counts.get(message.chat.id, 0))
                 mix_info = "; ".join(drop_session_changes.get(message.chat.id, []))
                 bot.reply_to(message, escape_markdown(f"🎉 Смесь завершена\\!\n\n"
                                                       f"🧪 *Состав смеси:* {mix_info}\n"
                                                       f"💰 *Общая стоимость:* {total_cost}р\\."), 
                              parse_mode="MarkdownV2")
+                user_states.pop(message.chat.id, None)
+                return
+
+            if user_input.capitalize() not in df['Name'].values:
+                bot.reply_to(message, escape_markdown(f'❌ Масло "{user_input}" не найдено\\.\nПопробуйте снова:'), parse_mode="MarkdownV2")
+                return
+
+            current_oils[message.chat.id] = user_input
+            user_states[message.chat.id] = WAITING_DROPS
+            bot.reply_to(message, escape_markdown(f"Введите количество капель для {user_input}\\:"), parse_mode="MarkdownV2")
 
         elif state == WAITING_DROPS:
             if not user_input.isdigit():
@@ -154,7 +143,10 @@ def handle_input(message):
 
             bot.reply_to(message, escape_markdown(f"✅ Добавлено: *{oil_name}* — {drop_count} капель\\.\n"
                                                   f"💰 Примерная стоимость: {int(total_price)}р\\.\n\n"
-                                                  f"Введите название следующего масла или отправьте `*` для завершения\\."), parse_mode="MarkdownV2")
-
+                                                  f"Введите название следующего масла или отправьте `*` для завершения\\."), 
+                         parse_mode="MarkdownV2")
+            user_states[message.chat.id] = WAITING_NEXT_OIL
+    else:
+        print('обычная обработка')
 if __name__ == "__main__":
     bot.infinity_polling()
