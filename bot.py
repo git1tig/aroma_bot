@@ -89,6 +89,17 @@ def escape_markdown(text):
     escape_chars = r"\_*[]()~`>#+-=|{}.!<>"
     return "".join(f"\\{char}" if char in escape_chars else char for char in text)
 
+def show_bot_capabilities(chat_id):
+    capabilities = (
+        "*Возможности бота:*\n\n"
+        "✅ `/start` – Приветствие и вывод возможностей\n"
+        "✅ `/м` – Получить информацию о эфирном масле\n"
+        "✅ `/р` – Создать свою уникальную смесь масел\n"
+        "✅ *Просто напишите свой вопрос*, и я отвечу, используя GPT-4o и FAISS.\n\n"
+        "💡 Попробуйте прямо сейчас!"
+    )
+    bot.send_message(chat_id, escape_markdown(capabilities), parse_mode="MarkdownV2")
+
 # === ОБРАБОТЧИК КОМАНД ===
 @bot.message_handler(commands=['start'])
 def start_command(message):
