@@ -19,7 +19,7 @@ if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
     raise ValueError("❌ Отсутствует TELEGRAM_BOT_TOKEN или OPENAI_API_KEY в .env файле!")
 
 openai.api_key = OPENAI_API_KEY
-bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="Markdown")
+bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="MarkdownV2")
 
 # === ПУТИ К ФАЙЛАМ ===
 MASLA_FILE = "/app/mono_oils.txt"
@@ -70,6 +70,19 @@ WAITING_OIL_NAME = "waiting_for_oil"
 WAITING_DROPS = "waiting_for_drop_quantity"
 WAITING_NEXT_OIL = "waiting_for_next_oil"
 
+# === ФУНКЦИЯ GPT-4o ===
+def gpt_for_query(prompt: str, system_message: str) -> str:
+    """Отправляет запрос в ChatGPT-4o-mini и получает ответ."""
+    response = openai.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=1
+    )
+    return response.choices[0].message.content
+
 # === ФУНКЦИЯ ВЫВОДА ВОЗМОЖНОСТЕЙ БОТА ===
 def send_bot_options(chat_id):
     bot.send_message(chat_id, 
@@ -79,7 +92,7 @@ def send_bot_options(chat_id):
                      "✅ `/м` – *Получить информацию о любом эфирном масле*\n"
                      "✅ *Просто напишите свой вопрос*, и я помогу разобраться!\n\n"
                      "💡 *Попробуйте прямо сейчас!* 😊", 
-                     parse_mode="Markdown")
+                     parse_mode="MarkdownV2")
 
 # === ОБРАБОТЧИК КОМАНД ===
 @bot.message_handler(commands=['start'])
@@ -96,122 +109,44 @@ def oil_command(message):
         parse_mode="MarkdownV2"
     )
     user_states[message.chat.id] = WAITING_NEXT_OIL
-    
+    send_bot_options(message.chat.id)
 
 @bot.message_handler(commands=['м'])
 def oil_command(message):
     bot.reply_to(message, "🔎 *Введите название масла, и я найду информацию о нём!*")
     user_states[message.chat.id] = WAITING_OIL_NAME
-    
-
-@bot.message_handler(commands=['стоп'])
-def cancel_command(message):
-    bot.reply_to(message, "🚫 *Команда отменена.* Начните заново с `/м` или `/р`.")
-    user_states.pop(message.chat.id, None)
     send_bot_options(message.chat.id)
 
-MAX_MESSAGE_LENGTH = 4000  
-
-def send_long_message(chat_id, text):
-    for i in range(0, len(text), MAX_MESSAGE_LENGTH):
-        bot.send_message(chat_id, text[i:i + MAX_MESSAGE_LENGTH])
-
 @bot.message_handler(func=lambda message: True)
-def gpt_for_query(prompt, system_message):
-    """Отправляет запрос в ChatGPT-4o-mini и получает ответ."""
-    response = openai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=1
-    )
-    return response.choices[0].message.content
-
-
 def handle_input(message):
     user_input = message.text.strip().lower()
 
-    if message.chat.id in user_states:
-        state = user_states[message.chat.id]
+    if db:
+        # 🔹 1. Генерируем ключевые слова
+        gpt_prompt_keywords = f"Определи ключевые слова для поиска по базе знаний об эфирных маслах на основе запроса: '{user_input}'."
+        keywords = gpt_for_query(gpt_prompt_keywords, "Ты эксперт по эфирным маслам. Генерируй ключевые слова для поиска.")
 
-        if state == WAITING_OIL_NAME:
-            if db:
-                docs = db.similarity_search_with_score(user_input, k=1)
-                if docs[0][1] < 0.37:
-                    bot.reply_to(message, f"*Информация о {user_input}:*\n\n{docs[0][0].page_content}", parse_mode="MarkdownV2")
-                else:
-                    docs = db.similarity_search(user_input, k=1)
-                    bot.reply_to(message, f"*Под ваш запрос '{user_input}' подходит:*\n\n{docs[0].page_content}", parse_mode="MarkdownV2")
-            else:
-                bot.reply_to(message, "⚠️ *База данных FAISS не загружена, поиск недоступен.*")
+        # 🔹 2. Выполняем поиск в FAISS
+        docs = db.similarity_search(keywords, k=3)
+        extracted_texts = [doc.page_content for doc in docs]
+        faiss_results = "\n\n".join(extracted_texts)
 
-        elif state == WAITING_NEXT_OIL:
-            if user_input != '*':
-                if user_input.capitalize() not in df['Name'].values:
-                    bot.reply_to(message, f'⚠️ *Масло "{user_input}" не найдено.* Попробуйте другое:')
-                    return
-                
-                if message.chat.id not in drop_session_changes:
-                    drop_session_changes[message.chat.id] = []
-                    drops_counts[message.chat.id] = 0
+        # 🔹 3. Передаём в GPT-4o
+        gpt_prompt_final = f"""
+        Вопрос пользователя: "{user_input}".
+        
+        Найденная информация из базы знаний:
+        {faiss_results}
+        
+        Используй эти данные и ответь пользователю понятным языком.
+        """
+        gpt_response = gpt_for_query(gpt_prompt_final, "Ты эксперт по эфирным маслам. Ответь развернуто и понятно.")
 
-                current_oils[message.chat.id] = user_input
-                user_states[message.chat.id] = WAITING_DROPS
-
-                existing_oils = "; ".join(drop_session_changes[message.chat.id])
-                bot.reply_to(message, f"*Уже введено:*\n\n{existing_oils}\n\n"
-                                      f"Теперь введите количество капель для *{user_input}*:", parse_mode="MarkdownV2")
-            else:
-                total_cost = int(drops_counts.get(message.chat.id, 0))
-                mix_info = "; ".join(drop_session_changes.get(message.chat.id, []))
-                bot.reply_to(message, f"🎉 *Смесь завершена!*\n\n"
-                                      f"🧪 *Состав смеси:* {mix_info}\n"
-                                      f"💰 *Общая стоимость:* {total_cost}р.\n", parse_mode="MarkdownV2")
-                
-                drop_session_changes.pop(message.chat.id, None)
-                drops_counts.pop(message.chat.id, None)
-                user_states.pop(message.chat.id, None)
-
-                send_bot_options(message.chat.id)
-
+        # 🔹 4. Отправляем ответ пользователю
+        bot.reply_to(message, gpt_response)
     else:
-        if db:
-            # 🔹 1. Генерируем ключевые слова с помощью GPT-4o
-            gpt_prompt_keywords = f"""
-            Пользователь задал вопрос: "{user_input}".
-            Определи ключевые слова или фразы для поиска информации в базе знаний об эфирных маслах.
-            Ответ должен содержать только ключевые слова, без пояснений.
-            """
-            keywords = gpt_for_query(gpt_prompt_keywords, "Ты эксперт по эфирным маслам. Определи ключевые слова для поиска.")
+        bot.reply_to(message, "⚠️ *База данных FAISS не загружена, поиск недоступен.*")
 
-            print(f"🔍 Генерированные ключевые слова: {keywords}")
-
-            # 🔹 2. Выполняем поиск в FAISS по ключевым словам
-            docs = db.similarity_search(keywords, k=3)
-            extracted_texts = [doc.page_content for doc in docs]
-            faiss_results = "\n\n".join(extracted_texts)
-
-            # 🔹 3. Передаём запрос пользователя и результаты поиска в GPT-4o
-            gpt_prompt_final = f"""
-            Пользователь задал вопрос: "{user_input}".
-
-            Вот информация, найденная в базе знаний:
-            {faiss_results}
-
-            Используй эти данные и ответь пользователю понятным языком.
-            """
-            gpt_response = gpt_for_query(gpt_prompt_final, "Ты эксперт по эфирным маслам. Ответь развернуто и понятно.")
-
-            # 🔹 4. Отправляем ответ пользователю
-            if len(gpt_response) > 4000:
-                send_long_message(message.chat.id, gpt_response)
-            else:
-                bot.reply_to(message, gpt_response)
-        else:
-            bot.reply_to(message, "⚠️ *База данных FAISS не загружена, поиск недоступен.*")
-
-
+# === ЗАПУСК БОТА ===
 if __name__ == "__main__":
     bot.infinity_polling()
