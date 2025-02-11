@@ -146,7 +146,7 @@ def handle_input(message):
 
     else:
         keywords = gpt_for_query(user_input, "Выдели ключевые слова для поиска информации о маслах.")
-        docs = db.similarity_search(keywords, k=3)
+        docs = db.similarity_search(keywords, k=5)
         search_results = "\n\n".join([doc.page_content for doc in docs])
 
         final_response = gpt_for_query(
