@@ -40,8 +40,9 @@ else:
     with open(MASLA_FILE, 'r', encoding='utf-8') as f:
         my_text = f.read()
     splitter = MarkdownHeaderTextSplitter(headers_to_split_on=[("#", "Header 1")])
-    chunks = splitter.split_text(my_text)  # ✅ `split_text()` уже возвращает нужные объекты
-    
+    text_chunks = splitter.split_text(my_text)
+    print(f"[DEBUG] Текст разбит на {len(text_chunks)} частей")
+    chunks = [Document(page_content=chunk) for chunk in text_chunks]
     db = FAISS.from_documents(chunks, embs)
     db.save_local(FAISS_INDEX_FILE)
     print("[DEBUG] FAISS-хранилище создано и сохранено!")
@@ -63,7 +64,7 @@ drops_counts = {}
 current_oils = {}
 drop_session_changes = {}
 
-# Определяем состояния:
+# Состояния
 WAITING_OIL_NAME = "waiting_for_oil"           # для команды /м
 WAITING_NEXT_OIL = "waiting_for_next_oil"        # для команды /р, ожидаем название масла или "*"
 WAITING_DROPS = "waiting_for_drop_quantity"      # для команды /р, ожидаем количество капель
@@ -109,7 +110,7 @@ def mix_command(message):
     bot.reply_to(
         message,
         escape_markdown("Введите название масла \(например, *Лаванда*, *Лимон*, *Мята*\)\\.\n\n"
-                        "🛑 Чтобы закончить ввод смеси, отправьте `*`\\."),
+                        "🛑 Чтобы закончить ввод смеси, отправьте `*`\\."), 
         parse_mode="MarkdownV2"
     )
     user_states[message.chat.id] = WAITING_NEXT_OIL
@@ -119,23 +120,23 @@ def mix_command(message):
 def handle_input(message):
     print(f"[DEBUG] Получено сообщение от chat_id={message.chat.id}: {message.text}")
     user_input = message.text.strip().lower()
-    
+
     if message.chat.id in user_states:
         state = user_states[message.chat.id]
-        print(f"[DEBUG] Обработка состояния {state} для chat_id={message.chat.id}")
+        print(f"[DEBUG] Текущее состояние для chat_id={message.chat.id}: {state}")
         if state == WAITING_OIL_NAME:
-            # Обработка команды /м: поиск информации по маслу в FAISS
+            # Обработка команды /м: поиск информации по маслу
             docs = db.similarity_search(user_input, k=1)
             if docs:
                 bot.reply_to(message, escape_markdown(f"📖 *Информация о {user_input}*\n\n{docs[0].page_content}"), parse_mode="MarkdownV2")
-                print(f"[DEBUG] Информация найдена по запросу '{user_input}'")
+                print(f"[DEBUG] Информация найдена для '{user_input}'")
             else:
                 bot.reply_to(message, escape_markdown("❌ Информация не найдена в базе\\."), parse_mode="MarkdownV2")
                 print(f"[DEBUG] Информация не найдена для '{user_input}'")
             user_states.pop(message.chat.id, None)
             print(f"[DEBUG] Состояние для chat_id={message.chat.id} очищено")
         elif state == WAITING_NEXT_OIL:
-            # Обработка команды /р: ожидание названия масла или '*' для завершения смеси
+            # Если пользователь отправил "*" — завершаем ввод смеси
             if user_input == "*":
                 total_cost = int(drops_counts.get(message.chat.id, 0))
                 mix_info = "\n".join(drop_session_changes.get(message.chat.id, []))
@@ -143,8 +144,12 @@ def handle_input(message):
                                                       f"🧪 *Состав смеси:*\n{mix_info}\n\n"
                                                       f"💰 *Общая стоимость:* {total_cost}р\\."), parse_mode="MarkdownV2")
                 print(f"[DEBUG] Смесь завершена для chat_id={message.chat.id}")
+                # Очищаем историю смеси, связанную с данным chat_id
+                drops_counts.pop(message.chat.id, None)
+                drop_session_changes.pop(message.chat.id, None)
                 user_states.pop(message.chat.id, None)
                 return
+            # Если пользователь ввёл название масла
             if user_input.capitalize() not in df['Name'].values:
                 bot.reply_to(message, escape_markdown(f'❌ Масло "{user_input}" не найдено\\.\nПопробуйте снова:'), parse_mode="MarkdownV2")
                 print(f"[DEBUG] Масло '{user_input}' не найдено в базе")
@@ -160,7 +165,7 @@ def handle_input(message):
                 return
             drop_count = int(user_input.replace(" ", ""))
             oil_name = current_oils[message.chat.id].capitalize()
-            # Расчёт стоимости одной капли
+            # Расчет стоимости капель
             if oil_name in df["Name"].values:
                 oil_price = df.loc[df["Name"] == oil_name, "Price"].values[0]
                 oil_volume = df.loc[df["Name"] == oil_name, "Vol"].values[0]
@@ -168,22 +173,19 @@ def handle_input(message):
                 total_price = drop_price * drop_count
             else:
                 total_price = 0
-            # Обновляем данные
             drops_counts[message.chat.id] = drops_counts.get(message.chat.id, 0) + total_price
             drop_session_changes[message.chat.id] = drop_session_changes.get(message.chat.id, []) + [f"{oil_name}, {drop_count} капель"]
-            # Формируем сводку
-            summary = (
-                f"✅ Добавлено: *{oil_name}* — {drop_count} капель\\.\n"
-                f"Текущий состав смеси:\n{'; '.join(drop_session_changes[message.chat.id])}\n"
-                f"Общая стоимость: {int(drops_counts[message.chat.id])}р\\.\n\n"
-                "Введите название следующего масла или отправьте `*` для завершения\\."
-            )
+            # Формируем сводку по текущей смеси
+            summary = (f"✅ Добавлено: *{oil_name}* — {drop_count} капель\\.\n"
+                       f"Текущий состав смеси:\n{'; '.join(drop_session_changes[message.chat.id])}\n"
+                       f"Общая стоимость: {int(drops_counts[message.chat.id])}р\\.\n\n"
+                       "Введите название следующего масла или отправьте `*` для завершения\\.")
             bot.reply_to(message, escape_markdown(summary), parse_mode="MarkdownV2")
-            print(f"[DEBUG] Обновлена сводка для chat_id={message.chat.id}")
+            print(f"[DEBUG] Сводка обновлена для chat_id={message.chat.id}")
             user_states[message.chat.id] = WAITING_NEXT_OIL
             print(f"[DEBUG] Состояние для chat_id={message.chat.id} изменено на {WAITING_NEXT_OIL}")
     else:
-        # Обработка свободного запроса: если ни одна команда не активна
+        # Обработка свободного запроса через GPT-4o + FAISS
         print(f"[DEBUG] Обработка свободного запроса от chat_id={message.chat.id}")
         keywords = gpt_for_query(user_input, "Выдели ключевые слова для поиска информации о маслах.")
         print(f"[DEBUG] Сгенерированы ключевые слова: {keywords}")
@@ -193,9 +195,9 @@ def handle_input(message):
             f"Вопрос пользователя: {user_input}\n\nРезультаты поиска:\n{search_results}",
             "Ты эксперт по эфирным маслам. Дай развернутый и понятный ответ, основываясь на результатах поиска."
         )
-        print(f"[DEBUG] Получен итоговый ответ от GPT-4o")
+        print(f"[DEBUG] Итоговый ответ сформирован, отправляем пользователю")
         bot.reply_to(message, escape_markdown(final_response), parse_mode="MarkdownV2")
-        print(f"[DEBUG] Ответ отправлен пользователю chat_id={message.chat.id}")
+        print(f"[DEBUG] Ответ отправлен chat_id={message.chat.id}")
 
 if __name__ == "__main__":
     print("[DEBUG] Бот запущен, ожидаем сообщений...")
