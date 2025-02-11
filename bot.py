@@ -117,6 +117,17 @@ def send_long_message(chat_id, text):
         bot.send_message(chat_id, text[i:i + MAX_MESSAGE_LENGTH])
 
 @bot.message_handler(func=lambda message: True)
+def gpt_for_query(prompt, system):
+    """Отправляет запрос в ChatGPT-4o-mini и получает ответ."""
+    response = openai.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=1
+    )
+    return response.choices[0].message.content
 def handle_input(message):
     user_input = message.text.strip().lower()
 
