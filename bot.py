@@ -109,13 +109,20 @@ def start_command(message):
 
 @bot.message_handler(commands=['м'])
 def oil_command(message):
-    bot.reply_to(message, "Введите название масла:")
+    bot.reply_to(message, escape_markdown("🔎 Введите название масла, и я найду информацию о нём!"), parse_mode="MarkdownV2")
     user_states[message.chat.id] = WAITING_OIL_NAME
+
 
 @bot.message_handler(commands=['р'])
 def mix_command(message):
-    bot.reply_to(message, "Введите название масла ('*' - завершить ввод):")
+    bot.reply_to(
+        message, 
+        escape_markdown("Введите название масла (например, *Лаванда*, *Лимон*, *Мята*).\n\n"
+                        "🛑 Чтобы закончить ввод смеси, отправьте `*`."), 
+        parse_mode="MarkdownV2"
+    )
     user_states[message.chat.id] = WAITING_NEXT_OIL
+
 
 @bot.message_handler(func=lambda message: True)
 def handle_input(message):
