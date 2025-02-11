@@ -70,6 +70,19 @@ WAITING_OIL_NAME = "waiting_for_oil"
 WAITING_DROPS = "waiting_for_drop_quantity"
 WAITING_NEXT_OIL = "waiting_for_next_oil"
 
+# === ФУНКЦИЯ GPT-4o ===
+def gpt_for_query(prompt: str, system_message: str) -> str:
+    """Отправляет запрос в GPT-4o-mini и получает ответ."""
+    response = openai.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=1
+    )
+    return response.choices[0].message.content
+
 # === ФУНКЦИЯ ЭКРАНИРОВАНИЯ ДЛЯ MARKDOWNV2 ===
 def escape_markdown(text):
     """Экранирует специальные символы для MarkdownV2, чтобы избежать ошибок Telegram."""
@@ -103,7 +116,16 @@ def handle_input(message):
     if message.chat.id in user_states:
         state = user_states[message.chat.id]
 
-        if state == WAITING_NEXT_OIL:
+        if state == WAITING_OIL_NAME:
+            docs = db.similarity_search(user_input, k=1)
+            if docs:
+                bot.reply_to(message, escape_markdown(f"📖 *Информация о {user_input}*\n\n{docs[0].page_content}"), parse_mode="MarkdownV2")
+            else:
+                bot.reply_to(message, escape_markdown("❌ Информация не найдена в базе\\."), parse_mode="MarkdownV2")
+
+            user_states.pop(message.chat.id, None)
+
+        elif state == WAITING_NEXT_OIL:
             if user_input == "*":
                 total_cost = int(drops_counts.get(message.chat.id, 0))
                 mix_info = "; ".join(drop_session_changes.get(message.chat.id, []))
@@ -122,31 +144,17 @@ def handle_input(message):
             user_states[message.chat.id] = WAITING_DROPS
             bot.reply_to(message, escape_markdown(f"Введите количество капель для {user_input}\\:"), parse_mode="MarkdownV2")
 
-        elif state == WAITING_DROPS:
-            if not user_input.isdigit():
-                bot.reply_to(message, escape_markdown("❌ Введите корректное количество капель\\:"), parse_mode="MarkdownV2")
-                return
-
-            oil_name = current_oils[message.chat.id].capitalize()
-            drop_count = int(user_input)
-
-            if oil_name in df["Name"].values:
-                oil_price = df.loc[df["Name"] == oil_name, "Price"].values[0]
-                oil_volume = df.loc[df["Name"] == oil_name, "Vol"].values[0]
-                drop_price = oil_price / (oil_volume * 25)
-                total_price = drop_price * drop_count
-            else:
-                total_price = 0
-
-            drops_counts[message.chat.id] = drops_counts.get(message.chat.id, 0) + total_price
-            drop_session_changes[message.chat.id] = drop_session_changes.get(message.chat.id, []) + [f"{oil_name}, {user_input} капель"]
-
-            bot.reply_to(message, escape_markdown(f"✅ Добавлено: *{oil_name}* — {drop_count} капель\\.\n"
-                                                  f"💰 Примерная стоимость: {int(total_price)}р\\.\n\n"
-                                                  f"Введите название следующего масла или отправьте `*` для завершения\\."), 
-                         parse_mode="MarkdownV2")
-            user_states[message.chat.id] = WAITING_NEXT_OIL
     else:
-        print('обычная обработка')
+        keywords = gpt_for_query(user_input, "Выдели ключевые слова для поиска информации о маслах.")
+        docs = db.similarity_search(keywords, k=3)
+        search_results = "\n\n".join([doc.page_content for doc in docs])
+
+        final_response = gpt_for_query(
+            f"Вопрос пользователя: {user_input}\n\nРезультаты поиска:\n{search_results}",
+            "Ты эксперт по эфирным маслам. Дай развернутый и понятный ответ, основываясь на результатах поиска."
+        )
+
+        bot.reply_to(message, escape_markdown(final_response), parse_mode="MarkdownV2")
+
 if __name__ == "__main__":
     bot.infinity_polling()
