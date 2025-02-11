@@ -97,7 +97,7 @@ def send_bot_options(chat_id):
 # === ОБРАБОТЧИК КОМАНД ===
 
 def escape_markdown(text):
-    """Экранирует символы для MarkdownV2."""
+    """Экранирует символы для MarkdownV2, чтобы избежать ошибок Telegram."""
     escape_chars = r"\_*[]()~`>#+-=|{}.!<>"
     return "".join(f"\\{char}" if char in escape_chars else char for char in text)
 
@@ -111,8 +111,8 @@ def start_command(message):
 def oil_command(message):
     bot.reply_to(
         message, 
-        "Введите название масла (например, *Лаванда*, *Лимон*, *Мята*).\n\n"
-        "🛑 *Чтобы закончить ввод смеси, отправьте `\\*`*.", 
+        escape_markdown("Введите название масла (например, *Лаванда*, *Лимон*, *Мята*).\n\n"
+                        "🛑 Чтобы закончить ввод смеси, отправьте `*`."), 
         parse_mode="MarkdownV2"
     )
     user_states[message.chat.id] = WAITING_NEXT_OIL
@@ -120,9 +120,10 @@ def oil_command(message):
 
 @bot.message_handler(commands=['м'])
 def oil_command(message):
-    bot.reply_to(message, "🔎 *Введите название масла, и я найду информацию о нём\\!*", parse_mode="MarkdownV2")
+    bot.reply_to(message, escape_markdown("🔎 Введите название масла, и я найду информацию о нём!"), parse_mode="MarkdownV2")
     user_states[message.chat.id] = WAITING_OIL_NAME
     send_bot_options(message.chat.id)
+
 
 
 @bot.message_handler(func=lambda message: True)
