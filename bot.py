@@ -115,7 +115,7 @@ def start_command(message):
 
 @bot.message_handler(commands=['м'])
 def oil_command(message):
-    bot.reply_to(message, escape_markdown("🔎 Введите название масла, и я найду информацию о нём!"), parse_mode="MarkdownV2")
+    bot.reply_to(message, escape_markdown("🔎 Введите название масла, и я найду информацию о нём\\!"), parse_mode="MarkdownV2")
     user_states[message.chat.id] = WAITING_OIL_NAME
 
 
@@ -124,8 +124,8 @@ def oil_command(message):
 def mix_command(message):
     bot.reply_to(
         message, 
-        escape_markdown("Введите название масла (например, Лаванда, Лимон, Мята).\n\n"
-                        "🛑 Чтобы закончить ввод смеси, отправьте `*`."), 
+        escape_markdown("Введите название масла \(например, *Лаванда*, *Лимон*, *Мята*\)\\.\n\n"
+                        "🛑 Чтобы закончить ввод смеси, отправьте `*`\\."), 
         parse_mode="MarkdownV2"
     )
     user_states[message.chat.id] = WAITING_NEXT_OIL
@@ -141,25 +141,26 @@ def handle_input(message):
         if state == WAITING_OIL_NAME:
             faiss_result = search_faiss(user_input)
             if faiss_result:
-                bot.reply_to(message, f"Информация о {user_input}:\n\n{faiss_result}")
+                bot.reply_to(message, escape_markdown(f"Информация о {user_input}:\n\n{faiss_result}"), parse_mode="MarkdownV2")
             else:
-                bot.reply_to(message, "❌ Информация не найдена в базе.")
+                bot.reply_to(message, escape_markdown("❌ Информация не найдена в базе\\."), parse_mode="MarkdownV2")
 
         elif state == WAITING_NEXT_OIL:
             if user_input != "*":
                 if user_input.capitalize() not in df['Name'].values:
-                    bot.reply_to(message, f'❌ Масло "{user_input}" не найдено. Попробуйте снова:')
+                    bot.reply_to(message, escape_markdown(f'❌ Масло "{user_input}" не найдено\\.\nПопробуйте снова:'), parse_mode="MarkdownV2")
                     return
                 
                 current_oils[message.chat.id] = user_input
                 user_states[message.chat.id] = WAITING_DROPS
-                bot.reply_to(message, f"Введите количество капель для {user_input}:")
+                bot.reply_to(message, escape_markdown(f"Введите количество капель для {user_input}\\:"), parse_mode="MarkdownV2")
             else:
                 total_cost = int(drops_counts.get(message.chat.id, 0))
                 mix_info = "; ".join(drop_session_changes.get(message.chat.id, []))
-                bot.reply_to(message, f"🎉 Смесь завершена!\n\n"
-                                      f"🧪 *Состав смеси:* {mix_info}\n"
-                                      f"💰 *Общая стоимость:* {total_cost}р.")
+                bot.reply_to(message, escape_markdown(f"🎉 Смесь завершена\\!\n\n"
+                                                      f"🧪 *Состав смеси:* {mix_info}\n"
+                                                      f"💰 *Общая стоимость:* {total_cost}р\\."), 
+                             parse_mode="MarkdownV2")
                 
                 drop_session_changes.pop(message.chat.id, None)
                 drops_counts.pop(message.chat.id, None)
@@ -167,13 +168,13 @@ def handle_input(message):
 
         elif state == WAITING_DROPS:
             if not user_input.isdigit():
-                bot.reply_to(message, "❌ Введите корректное количество капель:")
+                bot.reply_to(message, escape_markdown("❌ Введите корректное количество капель\\:"), parse_mode="MarkdownV2")
                 return
 
             drops_counts[message.chat.id] = drops_counts.get(message.chat.id, 0) + int(user_input)
             drop_session_changes[message.chat.id] = drop_session_changes.get(message.chat.id, []) + [f"{current_oils[message.chat.id]}, {user_input} капель"]
 
-            bot.reply_to(message, f"Добавлено: {current_oils[message.chat.id]}, {user_input} капель. Введите следующее масло или '*' для завершения.")
+            bot.reply_to(message, escape_markdown(f"Добавлено: {current_oils[message.chat.id]}, {user_input} капель\\.\nВведите следующее масло или `*` для завершения\\."), parse_mode="MarkdownV2")
 
 if __name__ == "__main__":
     bot.infinity_polling()
