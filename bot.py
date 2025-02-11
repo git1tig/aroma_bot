@@ -117,6 +117,18 @@ def send_long_message(chat_id, text):
         bot.send_message(chat_id, text[i:i + MAX_MESSAGE_LENGTH])
 
 @bot.message_handler(func=lambda message: True)
+def gpt_for_query(prompt, system):
+    """Отправляет запрос в ChatGPT-4o-mini и получает ответ."""
+    response = openai.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": 'Ты гениальный ароматерапевт и специалист по эфирным маслам, дай развернутый ответ на вопрос клиента, если это проблема, определи пути её решения с помощью эфирных масел, если это запрос на информацию, дай структурированный ответ. На вопросы, никак не связанные с эфирными маслами отвечай крайне коротко, с юмором, и говори, что тебя такие темы не интересуют. Если речь идёт о персонаже, предположи какое эфирное масло ему соответствует'},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=1
+    )
+    return response.choices[0].message.content
+
 def handle_input(message):
     user_input = message.text.strip().lower()
 
