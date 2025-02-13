@@ -1,7 +1,6 @@
 import os
 import telebot
 import openai
-import asyncio
 import tempfile
 from dotenv import load_dotenv
 import pandas as pd
@@ -11,7 +10,7 @@ from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import MarkdownHeaderTextSplitter
 from langchain.schema import Document
 import re
-from pydub import AudioSegment, silence  # импорт для обработки аудио
+from pydub import AudioSegment, silence
 
 # === ЗАГРУЗКА API-КЛЮЧЕЙ ===
 load_dotenv()
@@ -29,7 +28,7 @@ print("[DEBUG] Телеграм-бот инициализирован")
 MASLA_FILE = "/app/mono_oils.txt"
 FAISS_INDEX_FILE = "/app/index.faiss"
 
-# === ПРОВЕРКА И ЗАГРУЗКА FAISS ===
+# === ЗАГРУЗКА FAISS ===
 embs = OpenAIEmbeddings()
 db = None
 
@@ -40,10 +39,10 @@ else:
     print("[DEBUG] FAISS-хранилище не найдено, создаём заново...")
     if not os.path.exists(MASLA_FILE):
         raise FileNotFoundError(f"❌ Файл {MASLA_FILE} не найден! Добавьте его в каталог.")
-    with open(MASLA_FILE, 'r', encoding='utf-8') as f:
+    with open(MASLA_FILE, "r", encoding="utf-8") as f:
         my_text = f.read()
     splitter = MarkdownHeaderTextSplitter(headers_to_split_on=[("#", "Header 1")])
-    chunks = splitter.split_text(my_text)  # split_text() уже возвращает нужные объекты
+    chunks = splitter.split_text(my_text)
     db = FAISS.from_documents(chunks, embs)
     db.save_local(FAISS_INDEX_FILE)
     print("[DEBUG] FAISS-хранилище создано и сохранено!")
@@ -53,28 +52,27 @@ SHEET_URL = "https://docs.google.com/spreadsheets/d/1MknmvI9_YvjM7bge9tPryRKrrzC
 COLUMN_NAMES = ["Name", "Vol", "Price"]
 
 try:
-    df = pd.read_csv(SHEET_URL, names=COLUMN_NAMES, encoding='utf-8')
+    df = pd.read_csv(SHEET_URL, names=COLUMN_NAMES, encoding="utf-8")
     print("[DEBUG] Данные о маслах успешно загружены из Google Sheets")
 except Exception as e:
     print("[DEBUG] Ошибка загрузки данных:", e)
     df = pd.DataFrame(columns=COLUMN_NAMES)
 
-# === ХРАНИЛИЩЕ СОСТОЯНИЙ ===
+# === Глобальное состояние ===
 user_states = {}
 drops_counts = {}
 current_oils = {}
 drop_session_changes = {}
-sys1 = ('Ты гениальный ароматерапевт и специалист по эфирным маслам, '
-        'дай развернутый ответ на вопрос клиента, если это проблема, определи пути её решения с помощью эфирных масел, '
-        'если это запрос на информацию, дай структурированный ответ. На вопросы, никак не связанные с эфирными маслами отвечай крайне коротко, с юмором, и говори, что тебя такие темы не интересуют. '
-        'Если речь идёт о персонаже, предположи какое эфирное масло ему соответствует')
+sys1 = ("Ты гениальный ароматерапевт и специалист по эфирным маслам, "
+        "дай развернутый ответ на вопрос клиента, если это проблема, определи пути её решения с помощью эфирных масел, "
+        "если это запрос на информацию, дай структурированный ответ. На вопросы, никак не связанные с эфирными маслами отвечай крайне коротко, с юмором, и говори, что тебя такие темы не интересуют. "
+        "Если речь идёт о персонаже, предположи какое эфирное масло ему соответствует")
 
-# Состояния
-WAITING_OIL_NAME = "waiting_for_oil"           # для команды /м
-WAITING_NEXT_OIL = "waiting_for_next_oil"        # для команды /р, ожидаем название масла или "*"
-WAITING_DROPS = "waiting_for_drop_quantity"      # для команды /р, ожидаем количество капель
+# Состояния для диалога
+WAITING_OIL_NAME = "waiting_for_oil"
+WAITING_NEXT_OIL = "waiting_for_next_oil"
+WAITING_DROPS = "waiting_for_drop_quantity"
 
-# === ФУНКЦИЯ GPT-4o ===
 def gpt_for_query(prompt: str, system_message: str) -> str:
     """Отправляет запрос в GPT-4o-mini и получает ответ."""
     print(f"[DEBUG] Отправка запроса в GPT-4o: {prompt} | Система: {system_message}")
@@ -90,9 +88,8 @@ def gpt_for_query(prompt: str, system_message: str) -> str:
     print(f"[DEBUG] Ответ GPT-4o получен")
     return result
 
-# === ФУНКЦИЯ ЭКРАНИРОВАНИЯ ДЛЯ MARKDOWNV2 ===
 def escape_markdown(text):
-    """Экранирует специальные символы для MarkdownV2, чтобы избежать ошибок Telegram."""
+    """Экранирует специальные символы для MarkdownV2."""
     escape_chars = r"\_*[]()~`>#+-=|{}.!<>"
     return "".join(f"\\{char}" if char in escape_chars else char for char in text)
 
@@ -106,73 +103,30 @@ def show_bot_capabilities(chat_id):
     )
     bot.send_message(chat_id, escape_markdown(capabilities), parse_mode="MarkdownV2")
 
-# === Ваши асинхронные функции для обработки аудио ===
-USD_TO_RUB = 75  # пример курса, убедитесь, что значение корректное
-
-async def is_audio_empty(audio_file, silence_threshold=-50.0, min_silence_len=200):
-    audio = AudioSegment.from_file(audio_file)
-    print(f"[DEBUG] Длительность аудио: {len(audio)} мс")
-    silent_chunks = silence.detect_silence(
-        audio, 
-        min_silence_len=min_silence_len, 
-        silence_thresh=silence_threshold
-    )
-    print(f"[DEBUG] silent_chunks: {silent_chunks}")
-    if silent_chunks and (silent_chunks[0][1] - silent_chunks[0][0] >= len(audio)):
-        return True
-    return False
-
-async def transcribe_audio_whisper(db_pool, user_id, audio_file):
+def simple_transcribe_audio(audio_file_path):
     """
-    Транскрибация аудио с использованием Whisper API.
-    Если аудио пустое (содержит только тишину/шум), возвращает None.
+    Простой вариант транскрипции аудио с использованием Whisper API.
+    Файл сначала конвертируется в WAV (моно), затем отправляется для распознавания.
+    Возвращается распознанный текст или None.
     """
     try:
-        # Проверяем, пустое ли аудио (например, содержит только шум)
-        if await is_audio_empty(audio_file):
-            return None  # Возвращаем None, если аудио пустое
-
-        # Преобразование OGG или MP3 в WAV
-        audio = AudioSegment.from_file(audio_file)
-        audio = audio.set_channels(1)  # преобразуем в моно
-        wav_path = audio_file.replace(".ogg", "_mono.wav").replace(".mp3", "_mono.wav")
+        # Конвертация в WAV
+        audio = AudioSegment.from_file(audio_file_path)
+        audio = audio.set_channels(1)
+        wav_path = audio_file_path + "_mono.wav"
         audio.export(wav_path, format="wav")
-
-        # Подсчет длительности файла в минутах
-        duration_minutes = len(audio) / 60000  # перевод в минуты
-
-        # Расчёт стоимости транскрипции (если понадобится в будущем)
-        transcription_cost = round(duration_minutes * 0.006 * USD_TO_RUB, 5)
-
-        # Обновление базы данных (пока не используется)
-        # async with db_pool.acquire() as conn:
-        #     await conn.execute(
-        #         """
-        #         UPDATE users 
-        #         SET whisper_transcription_cost = ROUND(COALESCE(whisper_transcription_cost, 0) + $1, 5) 
-        #         WHERE user_id = $2
-        #         """,
-        #         transcription_cost, user_id
-        #     )
-
-        # Транскрибация с использованием Whisper API
-        with open(wav_path, "rb") as f:
-            response = openai.Audio.transcribe(
-                model="whisper-1",
-                file=f,
-                language="ru"
-            )
-
-        recognized_text = response["text"]
-        os.remove(wav_path)  # удаляем временный WAV файл
-
-        if not recognized_text:
-            return None
-        return recognized_text
+        
+        # Транскрибация через Whisper API
+        with open(wav_path, "rb") as wav_file:
+            transcript = openai.Audio.transcribe("whisper-1", wav_file, language="ru")
+        os.remove(wav_path)
+        
+        text = transcript.get("text", "").strip()
+        return text if text else None
     except Exception as e:
-        raise RuntimeError(f"Ошибка при транскрибации аудио: {e}")
+        print(f"Ошибка транскрипции: {e}", flush=True)
+        return None
 
-# === ОБРАБОТЧИК КОМАНД ===
 @bot.message_handler(commands=['start'])
 def start_command(message):
     print(f"[DEBUG] /start от chat_id={message.chat.id}")
@@ -191,14 +145,13 @@ def mix_command(message):
     print(f"[DEBUG] /р от chat_id={message.chat.id}")
     bot.reply_to(
         message,
-        escape_markdown("Введите название масла \(например, Лаванда, Лимон, Мята\)\\.\n\n"
+        escape_markdown("Введите название масла \\(например, Лаванда, Лимон, Мята\\)\\.\n\n"
                         "🛑 Чтобы закончить ввод смеси, отправьте `*`\\."), 
         parse_mode="MarkdownV2"
     )
     user_states[message.chat.id] = WAITING_NEXT_OIL
     print(f"[DEBUG] Состояние для chat_id={message.chat.id} установлено в {WAITING_NEXT_OIL}")
 
-# === ОБРАБОТЧИК ГОЛОСОВЫХ СООБЩЕНИЙ ===
 @bot.message_handler(content_types=['voice'])
 def handle_voice_message(message):
     print(f"[DEBUG] Получено голосовое сообщение от chat_id={message.chat.id}")
@@ -210,19 +163,12 @@ def handle_voice_message(message):
             temp_audio.write(downloaded_file)
             temp_audio_path = temp_audio.name
 
-        # Запуск асинхронной транскрипции через цикл событий.
-        # Предполагается, что db_pool уже создан и доступен глобально.
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        recognized_text = loop.run_until_complete(
-            transcribe_audio_whisper(db_pool, message.chat.id, temp_audio_path)
-        )
-        loop.close()
+        recognized_text = simple_transcribe_audio(temp_audio_path)
         os.remove(temp_audio_path)
 
         if recognized_text:
             print(f"[DEBUG] Распознанный текст: {recognized_text}")
-            # Подменяем текст сообщения и передаём в общий обработчик
+            # Подставляем распознанный текст вместо голосового сообщения
             message.text = recognized_text
             handle_input(message)
         else:
@@ -240,7 +186,6 @@ def handle_input(message):
         state = user_states[message.chat.id]
         print(f"[DEBUG] Текущее состояние для chat_id={message.chat.id}: {state}")
         if state == WAITING_OIL_NAME:
-            # Обработка команды /м: поиск информации по маслу
             docs = db.similarity_search(user_input, k=1)
             if docs:
                 bot.reply_to(message, escape_markdown(f"📖 *Информация о {user_input}*\n\n{docs[0].page_content}"), parse_mode="MarkdownV2")
@@ -306,7 +251,7 @@ def handle_input(message):
         final_response = gpt_for_query(
             f"Вопрос пользователя: {user_input}\n\nРезультаты поиска:\n{search_results}", sys1
         )
-        print(f"[DEBUG] Итоговый ответ сфо  рмирован, отправляем пользователю")
+        print(f"[DEBUG] Итоговый ответ сформирован, отправляем пользователю")
         bot.reply_to(message, escape_markdown(final_response), parse_mode="MarkdownV2")
         print(f"[DEBUG] Ответ отправлен chat_id={message.chat.id}")
 
