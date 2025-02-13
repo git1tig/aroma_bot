@@ -108,19 +108,23 @@ def simple_transcribe_audio(audio_file_path):
     """
     Упрощённая транскрипция аудио с использованием Whisper API.
     Аудиофайл конвертируется в моно WAV с использованием BytesIO,
-    после чего отправляется для распознавания.
+    после чего передаётся для распознавания.
     Возвращается распознанный текст или None.
     """
     try:
-        # Конвертация в моно WAV и экспорт в BytesIO
+        # Конвертация аудио в моно WAV и экспорт в BytesIO
         audio = AudioSegment.from_file(audio_file_path)
         audio = audio.set_channels(1)
         wav_io = io.BytesIO()
         audio.export(wav_io, format="wav")
         wav_io.seek(0)
         
-        # Отправляем на транскрипцию
-        transcript = openai.Audio.transcribe("whisper-1", wav_io, language="ru")
+        # Новый вызов API: используем openai.Audio.transcriptions.create вместо устаревшего openai.Audio.transcribe
+        transcript = openai.Audio.transcriptions.create(
+            model="whisper-1",
+            file=wav_io,
+            language="ru"
+        )
         text = transcript.get("text", "").strip()
         return text if text else None
     except Exception as e:
