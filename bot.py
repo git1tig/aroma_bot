@@ -1,6 +1,8 @@
 import os
 import telebot
 import openai
+import asyncio
+import tempfile
 from dotenv import load_dotenv
 import pandas as pd
 import requests
@@ -9,6 +11,7 @@ from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import MarkdownHeaderTextSplitter
 from langchain.schema import Document
 import re
+from pydub import AudioSegment, silence  # импорт для обработки аудио
 
 # === ЗАГРУЗКА API-КЛЮЧЕЙ ===
 load_dotenv()
@@ -40,7 +43,7 @@ else:
     with open(MASLA_FILE, 'r', encoding='utf-8') as f:
         my_text = f.read()
     splitter = MarkdownHeaderTextSplitter(headers_to_split_on=[("#", "Header 1")])
-    chunks = splitter.split_text(my_text)  # ✅ `split_text()` уже возвращает нужные объекты
+    chunks = splitter.split_text(my_text)  # split_text() уже возвращает нужные объекты
     db = FAISS.from_documents(chunks, embs)
     db.save_local(FAISS_INDEX_FILE)
     print("[DEBUG] FAISS-хранилище создано и сохранено!")
@@ -61,8 +64,10 @@ user_states = {}
 drops_counts = {}
 current_oils = {}
 drop_session_changes = {}
-sys1 = 'Ты гениальный ароматерапевт и специалист по эфирным маслам, дай развернутый ответ на вопрос клиента, если это проблема, определи пути её решения с помощью эфирных масел, если это запрос на информацию, дай структурированный ответ. На вопросы, никак не связанные с эфирными маслами отвечай крайне коротко, с юмором, и говори, что тебя такие темы не интересуют. Если речь идёт о персонаже, предположи какое эфирное масло ему соответствует'
-
+sys1 = ('Ты гениальный ароматерапевт и специалист по эфирным маслам, '
+        'дай развернутый ответ на вопрос клиента, если это проблема, определи пути её решения с помощью эфирных масел, '
+        'если это запрос на информацию, дай структурированный ответ. На вопросы, никак не связанные с эфирными маслами отвечай крайне коротко, с юмором, и говори, что тебя такие темы не интересуют. '
+        'Если речь идёт о персонаже, предположи какое эфирное масло ему соответствует')
 
 # Состояния
 WAITING_OIL_NAME = "waiting_for_oil"           # для команды /м
@@ -98,9 +103,80 @@ def show_bot_capabilities(chat_id):
         "✅ `/м` – Получить информацию об эфирном масле\n"
         "✅ `/р` – Рассчитать смесь масел\n"
         "✅ Или просто напишите свой вопрос, и я отвечу, используя свои знания.\n\n"
-
     )
     bot.send_message(chat_id, escape_markdown(capabilities), parse_mode="MarkdownV2")
+
+# === Ваши асинхронные функции для обработки аудио ===
+USD_TO_RUB = 75  # пример курса, убедитесь, что значение корректное
+
+async def is_audio_empty(audio_file, silence_threshold=-50.0, min_silence_len=200):
+    """
+    Проверяет, пустое ли аудио (без значимого звука)
+    :param audio_file: путь к аудиофайлу
+    :param silence_threshold: уровень громкости для определения тишины (в дБ)
+    :param min_silence_len: минимальная продолжительность тишины (в мс)
+    :return: True если аудио состоит из тишины/шума, иначе False
+    """
+    audio = AudioSegment.from_file(audio_file)
+    silent_chunks = silence.detect_silence(
+        audio, 
+        min_silence_len=min_silence_len, 
+        silence_thresh=silence_threshold
+    )
+    # Если список silent_chunks не найден или тишина занимает почти весь аудиофайл, считаем аудио пустым
+    if not silent_chunks or (silent_chunks[0][1] - silent_chunks[0][0] >= len(audio)):
+        return True
+    return False
+
+async def transcribe_audio_whisper(db_pool, user_id, audio_file):
+    """
+    Транскрибация аудио с использованием Whisper API.
+    Если аудио пустое (содержит только тишину/шум), возвращает None.
+    """
+    try:
+        # Проверяем, пустое ли аудио (например, содержит только шум)
+        if await is_audio_empty(audio_file):
+            return None  # Возвращаем None, если аудио пустое
+
+        # Преобразование OGG или MP3 в WAV
+        audio = AudioSegment.from_file(audio_file)
+        audio = audio.set_channels(1)  # преобразуем в моно
+        wav_path = audio_file.replace(".ogg", "_mono.wav").replace(".mp3", "_mono.wav")
+        audio.export(wav_path, format="wav")
+
+        # Подсчет длительности файла в минутах
+        duration_minutes = len(audio) / 60000  # перевод в минуты
+
+        # Стоимость транскрипции
+        transcription_cost = round(duration_minutes * 0.006 * USD_TO_RUB, 5)
+
+        # Сохраняем стоимость транскрипции в базе данных
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE users 
+                SET whisper_transcription_cost = ROUND(COALESCE(whisper_transcription_cost, 0) + $1, 5) 
+                WHERE user_id = $2
+                """,
+                transcription_cost, user_id
+            )
+
+        # Транскрибация с использованием Whisper API
+        with open(wav_path, "rb") as f:
+            response = openai.Audio.transcribe(
+                model="whisper-1",
+                file=f,
+                language="ru"
+            )
+
+        recognized_text = response["text"]
+        os.remove(wav_path)  # удаляем временный WAV файл
+
+        if not recognized_text:
+            return None
+        return recognized_text
+    except Exception as e:
+        raise RuntimeError(f"Ошибка при транскрибации аудио: {e}")
 
 # === ОБРАБОТЧИК КОМАНД ===
 @bot.message_handler(commands=['start'])
@@ -128,6 +204,39 @@ def mix_command(message):
     user_states[message.chat.id] = WAITING_NEXT_OIL
     print(f"[DEBUG] Состояние для chat_id={message.chat.id} установлено в {WAITING_NEXT_OIL}")
 
+# === ОБРАБОТЧИК ГОЛОСОВЫХ СООБЩЕНИЙ ===
+@bot.message_handler(content_types=['voice'])
+def handle_voice_message(message):
+    print(f"[DEBUG] Получено голосовое сообщение от chat_id={message.chat.id}")
+    try:
+        file_info = bot.get_file(message.voice.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        # Сохраняем аудиофайл во временный файл с расширением .ogg
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as temp_audio:
+            temp_audio.write(downloaded_file)
+            temp_audio_path = temp_audio.name
+
+        # Запуск асинхронной транскрипции через цикл событий.
+        # Предполагается, что db_pool уже создан и доступен глобально.
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        recognized_text = loop.run_until_complete(
+            transcribe_audio_whisper(db_pool, message.chat.id, temp_audio_path)
+        )
+        loop.close()
+        os.remove(temp_audio_path)
+
+        if recognized_text:
+            print(f"[DEBUG] Распознанный текст: {recognized_text}")
+            # Подменяем текст сообщения и передаём в общий обработчик
+            message.text = recognized_text
+            handle_input(message)
+        else:
+            bot.reply_to(message, escape_markdown("❌ Не удалось распознать голосовое сообщение или аудио пустое\\."), parse_mode="MarkdownV2")
+    except Exception as e:
+        print(f"[DEBUG] Ошибка при обработке голосового сообщения: {e}")
+        bot.reply_to(message, escape_markdown("❌ Ошибка при обработке голосового сообщения\\."), parse_mode="MarkdownV2")
+
 @bot.message_handler(func=lambda message: True)
 def handle_input(message):
     print(f"[DEBUG] Получено сообщение от chat_id={message.chat.id}: {message.text}")
@@ -150,7 +259,6 @@ def handle_input(message):
             user_states.pop(message.chat.id, None)
             print(f"[DEBUG] Состояние для chat_id={message.chat.id} очищено")
         elif state == WAITING_NEXT_OIL:
-            # Если пользователь отправил "*" — завершаем ввод смеси
             if user_input == "*":
                 total_cost = int(drops_counts.get(message.chat.id, 0))
                 mix_info = "\n".join(drop_session_changes.get(message.chat.id, []))
@@ -159,12 +267,10 @@ def handle_input(message):
                                                       f"💰 *Общая стоимость:* {total_cost}р\\."), parse_mode="MarkdownV2")
                 print(f"[DEBUG] Смесь завершена для chat_id={message.chat.id}")
                 show_bot_capabilities(message.chat.id)
-                # Очищаем историю смеси, связанную с данным chat_id
                 drops_counts.pop(message.chat.id, None)
                 drop_session_changes.pop(message.chat.id, None)
                 user_states.pop(message.chat.id, None)
                 return
-            # Если пользователь ввёл название масла
             if user_input.capitalize() not in df['Name'].values:
                 bot.reply_to(message, escape_markdown(f'❌ Масло "{user_input}" не найдено\\.\nПопробуйте снова:'), parse_mode="MarkdownV2")
                 print(f"[DEBUG] Масло '{user_input}' не найдено в базе")
@@ -180,7 +286,6 @@ def handle_input(message):
                 return
             drop_count = int(user_input.replace(" ", ""))
             oil_name = current_oils[message.chat.id].capitalize()
-            # Расчет стоимости капель
             if oil_name in df["Name"].values:
                 oil_price = df.loc[df["Name"] == oil_name, "Price"].values[0]
                 oil_volume = df.loc[df["Name"] == oil_name, "Vol"].values[0]
@@ -190,7 +295,6 @@ def handle_input(message):
                 total_price = 0
             drops_counts[message.chat.id] = drops_counts.get(message.chat.id, 0) + total_price
             drop_session_changes[message.chat.id] = drop_session_changes.get(message.chat.id, []) + [f"{oil_name}, {drop_count} капель"]
-            # Формируем сводку по текущей смеси
             summary = (f"✅ Добавлено: *{oil_name}* — {drop_count} капель\\.\n"
                        f"Текущий состав смеси:\n{'; '.join(drop_session_changes[message.chat.id])}\n"
                        f"Общая стоимость: {int(drops_counts[message.chat.id])}р\\.\n\n"
@@ -200,7 +304,6 @@ def handle_input(message):
             user_states[message.chat.id] = WAITING_NEXT_OIL
             print(f"[DEBUG] Состояние для chat_id={message.chat.id} изменено на {WAITING_NEXT_OIL}")
     else:
-        # Обработка свободного запроса через GPT-4o + FAISS
         print(f"[DEBUG] Обработка свободного запроса от chat_id={message.chat.id}")
         keywords = gpt_for_query(user_input, "Выдели ключевые слова для поиска информации о маслах.")
         print(f"[DEBUG] Сгенерированы ключевые слова: {keywords}")
