@@ -141,19 +141,19 @@ async def transcribe_audio_whisper(db_pool, user_id, audio_file):
         # Подсчет длительности файла в минутах
         duration_minutes = len(audio) / 60000  # перевод в минуты
 
-        # Стоимость транскрипции
+        # Расчёт стоимости транскрипции (если понадобится в будущем)
         transcription_cost = round(duration_minutes * 0.006 * USD_TO_RUB, 5)
 
-        # Сохраняем стоимость транскрипции в базе данных
-        async with db_pool.acquire() as conn:
-            await conn.execute(
-                """
-                UPDATE users 
-                SET whisper_transcription_cost = ROUND(COALESCE(whisper_transcription_cost, 0) + $1, 5) 
-                WHERE user_id = $2
-                """,
-                transcription_cost, user_id
-            )
+        # Обновление базы данных (пока не используется)
+        # async with db_pool.acquire() as conn:
+        #     await conn.execute(
+        #         """
+        #         UPDATE users 
+        #         SET whisper_transcription_cost = ROUND(COALESCE(whisper_transcription_cost, 0) + $1, 5) 
+        #         WHERE user_id = $2
+        #         """,
+        #         transcription_cost, user_id
+        #     )
 
         # Транскрибация с использованием Whisper API
         with open(wav_path, "rb") as f:
