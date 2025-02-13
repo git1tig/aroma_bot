@@ -2,6 +2,7 @@ import os
 import telebot
 import openai
 import tempfile
+import io
 from dotenv import load_dotenv
 import pandas as pd
 import requests
@@ -68,7 +69,7 @@ sys1 = ("Ты гениальный ароматерапевт и специал�
         "если это запрос на информацию, дай структурированный ответ. На вопросы, никак не связанные с эфирными маслами отвечай крайне коротко, с юмором, и говори, что тебя такие темы не интересуют. "
         "Если речь идёт о персонаже, предположи какое эфирное масло ему соответствует")
 
-# Состояния для диалога
+# Состояния диалога
 WAITING_OIL_NAME = "waiting_for_oil"
 WAITING_NEXT_OIL = "waiting_for_next_oil"
 WAITING_DROPS = "waiting_for_drop_quantity"
@@ -85,7 +86,7 @@ def gpt_for_query(prompt: str, system_message: str) -> str:
         temperature=1
     )
     result = response.choices[0].message.content
-    print(f"[DEBUG] Ответ GPT-4o получен")
+    print("[DEBUG] Ответ GPT-4o получен")
     return result
 
 def escape_markdown(text):
@@ -105,22 +106,21 @@ def show_bot_capabilities(chat_id):
 
 def simple_transcribe_audio(audio_file_path):
     """
-    Простой вариант транскрипции аудио с использованием Whisper API.
-    Файл сначала конвертируется в WAV (моно), затем отправляется для распознавания.
+    Упрощённая транскрипция аудио с использованием Whisper API.
+    Аудиофайл конвертируется в моно WAV с использованием BytesIO,
+    после чего отправляется для распознавания.
     Возвращается распознанный текст или None.
     """
     try:
-        # Конвертация в WAV
+        # Конвертация в моно WAV и экспорт в BytesIO
         audio = AudioSegment.from_file(audio_file_path)
         audio = audio.set_channels(1)
-        wav_path = audio_file_path + "_mono.wav"
-        audio.export(wav_path, format="wav")
+        wav_io = io.BytesIO()
+        audio.export(wav_io, format="wav")
+        wav_io.seek(0)
         
-        # Транскрибация через Whisper API
-        with open(wav_path, "rb") as wav_file:
-            transcript = openai.Audio.transcribe("whisper-1", wav_file, language="ru")
-        os.remove(wav_path)
-        
+        # Отправляем на транскрипцию
+        transcript = openai.Audio.transcribe("whisper-1", wav_io, language="ru")
         text = transcript.get("text", "").strip()
         return text if text else None
     except Exception as e:
@@ -168,7 +168,6 @@ def handle_voice_message(message):
 
         if recognized_text:
             print(f"[DEBUG] Распознанный текст: {recognized_text}")
-            # Подставляем распознанный текст вместо голосового сообщения
             message.text = recognized_text
             handle_input(message)
         else:
