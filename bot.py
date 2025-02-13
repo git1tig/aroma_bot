@@ -110,21 +110,15 @@ def show_bot_capabilities(chat_id):
 USD_TO_RUB = 75  # пример курса, убедитесь, что значение корректное
 
 async def is_audio_empty(audio_file, silence_threshold=-50.0, min_silence_len=200):
-    """
-    Проверяет, пустое ли аудио (без значимого звука)
-    :param audio_file: путь к аудиофайлу
-    :param silence_threshold: уровень громкости для определения тишины (в дБ)
-    :param min_silence_len: минимальная продолжительность тишины (в мс)
-    :return: True если аудио состоит из тишины/шума, иначе False
-    """
     audio = AudioSegment.from_file(audio_file)
+    print(f"[DEBUG] Длительность аудио: {len(audio)} мс")
     silent_chunks = silence.detect_silence(
         audio, 
         min_silence_len=min_silence_len, 
         silence_thresh=silence_threshold
     )
-    # Если список silent_chunks не найден или тишина занимает почти весь аудиофайл, считаем аудио пустым
-    if silent_chunks or (silent_chunks[0][1] - silent_chunks[0][0] >= len(audio)):
+    print(f"[DEBUG] silent_chunks: {silent_chunks}")
+    if silent_chunks and (silent_chunks[0][1] - silent_chunks[0][0] >= len(audio)):
         return True
     return False
 
