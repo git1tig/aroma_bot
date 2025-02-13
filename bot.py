@@ -124,7 +124,7 @@ async def is_audio_empty(audio_file, silence_threshold=-50.0, min_silence_len=20
         silence_thresh=silence_threshold
     )
     # Если список silent_chunks не найден или тишина занимает почти весь аудиофайл, считаем аудио пустым
-    if not silent_chunks or (silent_chunks[0][1] - silent_chunks[0][0] >= len(audio)):
+    if silent_chunks or (silent_chunks[0][1] - silent_chunks[0][0] >= len(audio)):
         return True
     return False
 
@@ -312,7 +312,7 @@ def handle_input(message):
         final_response = gpt_for_query(
             f"Вопрос пользователя: {user_input}\n\nРезультаты поиска:\n{search_results}", sys1
         )
-        print(f"[DEBUG] Итоговый ответ сформирован, отправляем пользователю")
+        print(f"[DEBUG] Итоговый ответ сфо  рмирован, отправляем пользователю")
         bot.reply_to(message, escape_markdown(final_response), parse_mode="MarkdownV2")
         print(f"[DEBUG] Ответ отправлен chat_id={message.chat.id}")
 
