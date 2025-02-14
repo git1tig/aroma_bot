@@ -119,8 +119,8 @@ def simple_transcribe_audio(audio_file_path):
         audio.export(wav_io, format="wav")
         wav_io.seek(0)
         
-        # Новый вызов API: используем openai.Audio.transcriptions.create
-        transcript = openai.Audio.transcriptions.create(
+        # Новый вызов API: используем openai.Audio.create_transcription
+        transcript = openai.Audio.create_transcription(
             file=wav_io,
             model="whisper-1",
             language="ru",
@@ -241,7 +241,7 @@ def handle_input(message):
             summary = (f"✅ Добавлено: *{oil_name}* — {drop_count} капель\\.\n"
                        f"Текущий состав смеси:\n{'; '.join(drop_session_changes[message.chat.id])}\n"
                        f"Общая стоимость: {int(drops_counts[message.chat.id])}р\\.\n\n"
-                       "Введите название следующего масла или отправьте `*` для завершения\\.")
+                       "Введите название следующего масла или отправьте `*` для завершения\\.") 
             bot.reply_to(message, escape_markdown(summary), parse_mode="MarkdownV2")
             print(f"[DEBUG] Сводка обновлена для chat_id={message.chat.id}")
             user_states[message.chat.id] = WAITING_NEXT_OIL
