@@ -106,7 +106,7 @@ def show_bot_capabilities(chat_id):
 
 def simple_transcribe_audio(audio_file_path):
     """
-    Упрощённая транскрипция аудио с использованием Whisper API.
+    Упрощённая транскрипция аудио с использованием нового интерфейса Whisper API.
     Аудиофайл конвертируется в моно WAV с использованием BytesIO,
     после чего передаётся для распознавания.
     Возвращается распознанный текст или None.
@@ -119,11 +119,12 @@ def simple_transcribe_audio(audio_file_path):
         audio.export(wav_io, format="wav")
         wav_io.seek(0)
         
-        # Новый вызов API: используем openai.Audio.transcriptions.create вместо устаревшего openai.Audio.transcribe
+        # Новый вызов API: используем openai.Audio.transcriptions.create
         transcript = openai.Audio.transcriptions.create(
-            model="whisper-1",
             file=wav_io,
-            language="ru"
+            model="whisper-1",
+            language="ru",
+            response_format="json"  # можно указать "text", если хотите получить просто текст
         )
         text = transcript.get("text", "").strip()
         return text if text else None
