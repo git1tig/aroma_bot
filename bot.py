@@ -6,8 +6,8 @@ import io
 from dotenv import load_dotenv
 import pandas as pd
 import requests
-#from langchain_openai import OpenAIEmbeddings
-from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
+#from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import MarkdownHeaderTextSplitter
 from langchain.schema import Document
