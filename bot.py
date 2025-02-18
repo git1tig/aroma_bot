@@ -118,19 +118,22 @@ def simple_transcribe_audio(audio_file_path):
         wav_io = io.BytesIO()
         audio.export(wav_io, format="wav")
         wav_io.seek(0)
+        # Указываем имя файла, чтобы API понял формат
+        wav_io.name = "audio.wav"
         
-        # Используем новый метод API: обращаемся через openai.audio (с маленькой буквы)
+        # Используем новый метод API: обращаемся через openai.audio.transcriptions.create
         transcript = openai.audio.transcriptions.create(
             file=wav_io,
             model="whisper-1",
             language="ru",
-            response_format="json"  # можно указать "text", если нужен просто текст
+            response_format="json"  # или "text", если нужен просто текст
         )
         text = transcript.get("text", "").strip()
         return text if text else None
     except Exception as e:
         print(f"Ошибка транскрипции: {e}", flush=True)
         return None
+
 
 @bot.message_handler(commands=['start'])
 def start_command(message):
