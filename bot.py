@@ -119,12 +119,12 @@ def simple_transcribe_audio(audio_file_path):
         audio.export(wav_io, format="wav")
         wav_io.seek(0)
         
-        # Новый вызов API: используем openai.Audio.transcriptions.create
-        transcript = openai.Audio.transcriptions.create(
+        # Используем новый метод API: обращаемся через openai.audio (с маленькой буквы)
+        transcript = openai.audio.transcriptions.create(
             file=wav_io,
             model="whisper-1",
             language="ru",
-            response_format="json"  # или "text", если нужен просто текст
+            response_format="json"  # можно указать "text", если нужен просто текст
         )
         text = transcript.get("text", "").strip()
         return text if text else None
