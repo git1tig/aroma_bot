@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import pandas as pd
 import requests
 from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain_community.vectorstores import FAISS
+from langchain.vectorstores import FAISS
 from langchain.text_splitter import MarkdownHeaderTextSplitter
 from langchain.schema import Document
 import re
@@ -119,12 +119,12 @@ def simple_transcribe_audio(audio_file_path):
         audio.export(wav_io, format="wav")
         wav_io.seek(0)
         
-        # Новый вызов API: используем openai.Audio.create_transcription
+        # Используем новый метод API: openai.Audio.create_transcription
         transcript = openai.Audio.create_transcription(
             file=wav_io,
             model="whisper-1",
             language="ru",
-            response_format="json"  # можно указать "text", если нужен просто текст
+            response_format="json"  # можно указать "text" для простого текста
         )
         text = transcript.get("text", "").strip()
         return text if text else None
