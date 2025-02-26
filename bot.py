@@ -35,7 +35,7 @@ db = None
 
 if os.path.exists(FAISS_INDEX_FILE):
     print("[DEBUG] FAISS-хранилище найдено, загружаем...")
-    db = FAISS.load_local(FAISS_INDEX_FILE, embs, allow_dangerous_deserialization=True)
+    db = FAISS.load_local(FAISS_INDEX_FILE, embs)
 else:
     print("[DEBUG] FAISS-хранилище не найдено, создаём заново...")
     if not os.path.exists(MASLA_FILE):
