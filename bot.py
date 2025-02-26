@@ -104,24 +104,34 @@ def show_bot_capabilities(chat_id):
     )
     bot.send_message(chat_id, escape_markdown(capabilities), parse_mode="MarkdownV2")
 
-def simple_transcribe_audio(audio_file_path):
+def simple_transcribe_audio(audio_file_path, silence_thresh=-50.0, min_silence_len=1000):
     """
-    Упрощённая транскрипция аудио с использованием нового интерфейса Whisper API.
-    Аудиофайл конвертируется в моно WAV с использованием BytesIO,
-    после чего передаётся для распознавания.
-    Возвращается распознанный текст или None.
+    Упрощённая транскрипция аудио с проверкой на пустоту.
+    Если аудиофайл пустой (содержит только тишину или нулевую длительность), возвращается None.
     """
     try:
-        # Конвертация аудио в моно WAV и экспорт в BytesIO
+        # Загружаем аудио
         audio = AudioSegment.from_file(audio_file_path)
+        
+        # Если аудио имеет нулевую продолжительность, считаем его пустым
+        if len(audio) == 0:
+            print("Аудиофайл имеет нулевую длительность.")
+            return None
+
+        # Проверяем, содержит ли аудио ненулевые сегменты
+        nonsilent_segments = silence.detect_nonsilent(audio, min_silence_len=min_silence_len, silence_thresh=silence_thresh)
+        if len(nonsilent_segments) == 0:
+            print("Аудиофайл содержит только тишину.")
+            return None
+        
+        # Продолжаем обработку: конвертируем аудио в моно WAV
         audio = audio.set_channels(1)
         wav_io = io.BytesIO()
         audio.export(wav_io, format="wav")
         wav_io.seek(0)
-        # Указываем имя файла для определения формата
         wav_io.name = "audio.wav"
         
-        # Используем новый метод API: обращаемся через openai.audio.transcriptions.create
+        # Отправляем аудио в Whisper API для транскрипции
         transcript = openai.audio.transcriptions.create(
             file=wav_io,
             model="whisper-1",
