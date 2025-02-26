@@ -104,7 +104,7 @@ def show_bot_capabilities(chat_id):
     )
     bot.send_message(chat_id, escape_markdown(capabilities), parse_mode="MarkdownV2")
 
-def simple_transcribe_audio(audio_file_path, silence_thresh=-50.0, min_silence_len=1000):
+def simple_transcribe_audio(audio_file_path, silence_thresh=-40.0, min_silence_len=1000):
     """
     Упрощённая транскрипция аудио с проверкой на пустоту.
     Если аудиофайл пустой (содержит только тишину или нулевую длительность), возвращается None.
