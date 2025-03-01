@@ -11,7 +11,7 @@ load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Если используется ваш ассистент в OpenAI Threads API — укажите его ID:
-assistant_id = 'asst_gDfpe4WMzW9bUUaN3IfyivY8'
+assistant_id = "YOUR_ASSISTANT_ID"
 
 class AssistantDialogManager:
     def __init__(self, time_limit=1200):
@@ -102,4 +102,15 @@ class AssistantDialogManager:
         sorted_msgs = sorted(messages.data, key=lambda m: m.created_at, reverse=True)
         for msg in sorted_msgs:
             if msg.role == "assistant":
-                #
+                # Пропускаем pinned-сообщения
+                pinned = getattr(msg, "metadata", {}).get("pinned", False)
+                if not pinned:
+                    return self._parse_content_to_str(msg.content)
+        return ""
+
+    def ask_assistant(self, user_id: int, text: str) -> str:
+        """
+        Удобная обёртка: добавляет сообщение пользователя и сразу возвращает ответ ассистента.
+        """
+        self.add_user_message(user_id, text)
+        return self.run_assistant(user_id)
