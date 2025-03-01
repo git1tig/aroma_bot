@@ -11,7 +11,7 @@ load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Если используется ваш ассистент в OpenAI Threads API — укажите его ID:
-assistant_id = "YOUR_ASSISTANT_ID"
+assistant_id = 'asst_gDfpe4WMzW9bUUaN3IfyivY8'
 
 class AssistantDialogManager:
     def __init__(self, time_limit=1200):
