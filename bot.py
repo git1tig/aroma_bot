@@ -100,12 +100,13 @@ def simple_transcribe_audio(audio_file_path, silence_thresh=-40.0, min_silence_l
         wav_io.name = "audio.wav"
         
         print("[DEBUG] Отправляем WAV в Whisper API для транскрипции...")
-        transcript = openai.Audio.transcribe(
-            model="whisper-1",
+        transcript = openai.audio.transcriptions.create(
             file=wav_io,
-            language="ru"
+            model="whisper-1",
+            language="ru",
+            response_format="json"  # или "text", если нужен просто текст
         )
-        text = transcript.get("text", "").strip()
+        text = transcript.text.strip()
         print(f"[DEBUG] Whisper вернул текст: {text!r}")
         return text if text else None
     except Exception as e:
